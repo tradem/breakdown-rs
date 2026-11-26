@@ -109,7 +109,7 @@ review-side surfacing plus verification, not a new pipeline.
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` (`pubspec.yaml`) | **none** — no bump, no dependency | UI-only change; version bumps are release-time |
+| `frontend-flutter` (`pubspec.yaml` + `CHANGELOG.md`) | version bump `0.5.0-alpha.1+156 → 0.5.0-alpha.2+157` | user-visible UI change: the client's version moves with it (ADR-033, `CHANGELOG.md` `## [Unreleased]`), and `+N` must stay strictly monotonic for the Play `versionCode` |
 | `breakdown_api` (`vendor/breakdown_api/`) | **none** — read-only consumer | fields already shipped by the 1.11.0 regen (issues #960/#968) |
 | `*.g.dart` / `*.freezed.dart` | **none** | no new provider/annotation |
 | `lib/l10n/generated/**` | regenerated | 7 new ARB keys (`flutter gen-l10n`) |

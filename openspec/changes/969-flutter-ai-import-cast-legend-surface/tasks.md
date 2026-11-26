@@ -59,3 +59,7 @@
 - [x] 6.1 `docs/design/screens/ai-import-jobs.md`: new section
       "Preview & Apply — the `ROLLEN` legend, cast chips and shot suffixes".
 - [x] 6.2 This OpenSpec change (proposal + delta spec + tasks).
+- [x] 6.3 Version bump `0.5.0-alpha.1+156 → 0.5.0-alpha.2+157` in
+      `frontend-flutter/pubspec.yaml` + the matching `## [Unreleased]` entry in
+      `frontend-flutter/CHANGELOG.md` (ADR-033: `pubspec.yaml` is the single
+      version source, `+N` strictly monotonic).
