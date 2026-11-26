@@ -86,11 +86,12 @@ tower-http.workspace = true
 http-body-util = "0.1"
 indexmap = "2"
 
-# Server-side `detail` localization (ADR-031 D5, Tranche 3). `fluent` is the
-# umbrella crate; `fluent-bundle` drives the message bundles. `accept-language`
-# parses q-valued `Accept-Language` headers; `unic-langid` models locales.
-# Core stays dependency-free — only the api crate touches i18n.
-fluent = "0.17"
+# Server-side `detail` localization (ADR-031 D5, Tranche 3). `fluent-bundle`
+# drives the message bundles; `accept-language` parses q-valued
+# `Accept-Language` headers; `unic-langid` models locales. Core stays
+# dependency-free — only the api crate touches i18n. (The `fluent` umbrella
+# crate is *not* needed: every call site uses `fluent-bundle` / `fluent-syntax`
+# directly, and cargo 1.100's `unused_dependencies` lint flagged it — issue #995.)
 fluent-bundle = "0.16"
 unic-langid = "0.9"
 accept-language = "3"

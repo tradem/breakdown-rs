@@ -24,9 +24,9 @@ edition = "2024"
 authors = ["Tobias Rademacher <your.email@example.com>"]
 license = "AGPL-3.0"
 # MSRV (ADR-020 D2/D5): the workspace dependency floor — matches the
-# Dockerfile builder image (rust:1.99-bookworm). A future bump is a MAJOR
+# Dockerfile builder image (rust:1.100-bookworm). A future bump is a MAJOR
 # change per crate and must be coordinated across core → infra → api (D3).
-rust-version = "1.99"
+rust-version = "1.100"
 
 [workspace.dependencies]
 # Web & API
