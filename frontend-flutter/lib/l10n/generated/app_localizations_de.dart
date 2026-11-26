@@ -1226,6 +1226,40 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiPreviewContinuityKeepEmpty => 'Szene ohne Look lassen';
 
   @override
+  String aiPreviewCastLegendTitle(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Einträge',
+      one: '1 Eintrag',
+    );
+    return 'ROLLEN-Legende · $_temp0';
+  }
+
+  @override
+  String get aiPreviewCastLegendHint =>
+      'Nummern aus der ROLLEN-Liste des Drehplans. Nicht zuordenbare Nummern entfallen.';
+
+  @override
+  String get aiPreviewRoleModifierDummy => 'Dummy';
+
+  @override
+  String get aiPreviewRoleModifierVoiceOnly => 'Nur Stimme';
+
+  @override
+  String get aiPreviewRoleModifierExtraOt => '(OT)';
+
+  @override
+  String aiPreviewRoleModifierSemantics(Object modifier) {
+    return '$modifier · Rollen-Zusatz aus dem Drehplan';
+  }
+
+  @override
+  String aiPreviewShotSuffixSemantics(Object suffix) {
+    return 'Aufnahme $suffix · Pick-up- oder Insert-Aufnahme';
+  }
+
+  @override
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,

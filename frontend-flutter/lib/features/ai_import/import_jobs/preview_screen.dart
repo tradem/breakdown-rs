@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/problem_error.dart';
 import '../../../design/components/ai_score_stars.dart';
 import '../../../design/scene_mood_label.dart';
+import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../data/ai_import_providers.dart';
@@ -376,6 +377,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           ),
         ),
         _payloadHeader(context, payload),
+        // The `ROLLEN` number legend of a schedule preview (issue #969): the
+        // reference metadata the cast codes in the rows resolve against.
+        // Collapsed by default and silent for an absent/empty map, so a
+        // pre-`[P4]` stored preview renders exactly as before.
+        if (payload is AiPreviewPayloadOneOf1)
+          _CastLegendSection(
+            entries:
+                payload.data.castLegend?.values ??
+                const <ScheduleLegendEntry>[],
+          ),
         // Issue #827: what the SCRIPT states about its block, next to the block
         // this import writes into. The script value comes from the payload
         // itself (`ScriptContext.blockNumber`, persisted with the preview), so
@@ -616,6 +627,11 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             '${row.shootingDayLabel ?? row.date?.toString() ?? l10nOf(context).aiPreviewUnscheduled}',
           ),
           dayScore: row.shootingDayScore,
+          // The row's RESOLVED cast and its pick-up/insert suffix (issue
+          // #969). A pre-merge schedule has no legend on screen next to it
+          // otherwise, so the legend above these rows stays verifiable: an
+          // unresolved code simply shows no chip.
+          scheduleRow: row,
         ),
     ],
     AiPreviewPayloadOneOf2() => [
@@ -638,6 +654,11 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // scene/synopsis scores are NOT on the wire here — only the day
           // score from the schedule rows (issue #723). Null renders nothing.
           dayScore: _mergedDayScore(merged),
+          // The merge review's own metadata (issue #969): which cast codes
+          // resolved on each schedule row, and whether a row is a pick-up or
+          // insert shot of the scene (`300.37N`). A scene with two rows reads
+          // as such instead of as a duplicate.
+          scheduleRows: merged.scheduleRows,
         ),
       // Unmatched rows render as NON-actionable info cards — they are
       // excluded from the decisions and from one-tap accept-all (no
@@ -645,6 +666,10 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
       for (final row in payload.data.unmatchedScheduleRows)
         _InfoRowCard(
           label: l10nOf(context).aiPreviewUnmatchedScheduleRow(row.rowRef),
+          // A row the merge could not match still states what the schedule
+          // itself resolved (issue #969) — the chips are read-only metadata,
+          // never a suggestion that the row should have matched.
+          scheduleRow: row,
         ),
       for (final scene in payload.data.unmatchedScriptScenes)
         _InfoRowCard(
@@ -808,6 +833,7 @@ class _PreviewRowCard extends ConsumerWidget {
     this.synopsisScore,
     this.dayScore,
     this.scoringFailed = false,
+    this.scheduleRows = const <ShootingScheduleRow>[],
   });
 
   final String jobId;
@@ -825,6 +851,12 @@ class _PreviewRowCard extends ConsumerWidget {
   /// request failed after the bounded retry, so its scores are honestly absent.
   /// The row says so instead of rendering nothing.
   final bool scoringFailed;
+
+  /// The schedule rows the merge attached to this scene (issue #969). Each
+  /// row's RESOLVED cast and its pick-up/insert shot suffix render as chips,
+  /// so `300.37` + `300.37N` on one scene reads as two different shoots
+  /// instead of a duplicate. Empty for the script variant.
+  final Iterable<ShootingScheduleRow> scheduleRows;
 
   /// The row's extracted shooting day (issue #706) — display-only here;
   /// the accept/reject decision lives in the apply card. `null` on a
@@ -917,6 +949,11 @@ class _PreviewRowCard extends ConsumerWidget {
             // under its category lines — never a fabricated rating and never
             // silence (issue #767).
             if (scoringFailed) AiScoringFailedNote(draftRef: draftRef),
+            // The merge review's own metadata (issue #969): which cast codes
+            // resolved per schedule row and which row is a pick-up/insert
+            // shot. Every chip is inert reference information — apply treats
+            // all rows of a scene identically.
+            _MergedScheduleRows(rows: scheduleRows),
             const SizedBox(height: 8),
             SegmentedButton<String>(
               key: Key('ai-row-decision-$draftRef'),
@@ -1142,7 +1179,7 @@ class _ScoreLine extends StatelessWidget {
 /// follow the apply card's single-episode target (the backward-compatible
 /// flow).
 class _InfoRowCard extends StatelessWidget {
-  const _InfoRowCard({required this.label, this.dayScore});
+  const _InfoRowCard({required this.label, this.dayScore, this.scheduleRow});
 
   final String label;
 
@@ -1150,24 +1187,416 @@ class _InfoRowCard extends StatelessWidget {
   /// info cards; `null` renders nothing.
   final double? dayScore;
 
+  /// The schedule row this card renders (issue #969). Its resolved cast and
+  /// its pick-up/insert shot suffix render as chips under the label; `null`
+  /// for the cards that ARE not schedule rows (uncertainty notices,
+  /// unmatched script scenes).
+  final ShootingScheduleRow? scheduleRow;
+
   @override
-  Widget build(BuildContext context) => Card(
-    key: const Key('ai-preview-info-row'),
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
+  Widget build(BuildContext context) {
+    final row = scheduleRow;
+    return Card(
+      key: const Key('ai-preview-info-row'),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+            if (dayScore != null) ...[
+              const SizedBox(height: 4),
+              AiScoreStars(score: dayScore),
+            ],
+            if (row != null && _rowSurfacesMetadata(row)) ...[
+              const SizedBox(height: AppSpacing.space4),
+              Wrap(
+                spacing: AppSpacing.space4,
+                runSpacing: AppSpacing.space4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: _scheduleRowChips(row),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A merged scene's schedule rows that carry review metadata (issue #969).
+///
+/// One line per row that has something to state: the row's verbatim reference,
+/// its pick-up/insert suffix chip and its resolved cast pills. A row whose
+/// codes all failed to resolve (the server drops unknown codes, ADR-041 `D6`)
+/// and that carries no suffix renders NOTHING — it is not an error state, so
+/// no warning is invented (same doctrine as an absent `summary`).
+class _MergedScheduleRows extends StatelessWidget {
+  const _MergedScheduleRows({required this.rows});
+
+  final Iterable<ShootingScheduleRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final surfaced = [
+      for (final row in rows)
+        if (_rowSurfacesMetadata(row)) row,
+    ];
+    if (surfaced.isEmpty) return const SizedBox.shrink();
+    final style = Theme.of(context).textTheme.bodySmall;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final row in surfaced)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.space4),
+            // A Wrap, not a Row: one verbatim row reference plus several cast
+            // pills has to reflow on a narrow phone instead of overflowing.
+            child: Wrap(
+              spacing: AppSpacing.space4,
+              runSpacing: AppSpacing.space4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  row.rowRef,
+                  key: Key('ai-preview-shoot-row-${row.rowRef}'),
+                  style: style,
+                ),
+                ..._scheduleRowChips(row),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The schedule's `ROLLEN` number legend (`ShootingSchedule.castLegend`),
+/// collapsed by default (issue #969).
+///
+/// A schedule page carries ~35 entries, so an expanded legend above the rows
+/// would bury the payload it explains; the collapsed tile still states that a
+/// legend exists and how many entries it holds. An EMPTY or absent map renders
+/// nothing at all — a pre-`[P4]` stored preview carries no legend, and a “no
+/// legend” placeholder would invent an error state that does not exist (the
+/// same noise-suppression doctrine as `summary == null`).
+class _CastLegendSection extends StatelessWidget {
+  const _CastLegendSection({required this.entries});
+
+  /// The legend entries as they arrive on the wire, keyed by cast code; the
+  /// ORDER is the display order the client derives (numeric codes ascending).
+  final Iterable<ScheduleLegendEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = _sortedLegendEntries(entries);
+    if (sorted.isEmpty) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.space8),
+      child: Card(
+        key: const Key('ai-preview-cast-legend'),
+        child: ExpansionTile(
+          key: const Key('ai-preview-cast-legend-tile'),
+          // Collapsed by default: reference metadata, not the payload.
+          initiallyExpanded: false,
+          title: Text(
+            l10n.aiPreviewCastLegendTitle(sorted.length),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          subtitle: Text(
+            l10n.aiPreviewCastLegendHint,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          children: [
+            for (final entry in sorted)
+              _CastLegendEntryRow(
+                key: Key('ai-preview-cast-legend-entry-${entry.code}'),
+                entry: entry,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One `code → name (+ role modifier)` legend line (issue #969).
+///
+/// The code renders in tabular figures so a list of numbers stays scannable;
+/// the modifier is a badge rather than a suffix of the name, because the same
+/// modifier vocabulary also badges the ROWS' resolved cast.
+class _CastLegendEntryRow extends StatelessWidget {
+  const _CastLegendEntryRow({required this.entry, super.key});
+
+  final ScheduleLegendEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final modifier = entry.modifier;
+    final modifierLabel = _roleModifierLabel(l10nOf(context), modifier);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.space16,
+        vertical: AppSpacing.space4,
+      ),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          if (dayScore != null) ...[
-            const SizedBox(height: 4),
-            AiScoreStars(score: dayScore),
+          ConstrainedBox(
+            // A token, not a magic width: the column only has to fit 4-digit
+            // codes, and the name column absorbs the rest.
+            constraints: const BoxConstraints(minWidth: AppSpacing.space32),
+            child: Text(
+              entry.code,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.space8),
+          Expanded(
+            child: Text(entry.characterName, style: theme.textTheme.bodyMedium),
+          ),
+          if (modifier != null && modifierLabel != null) ...[
+            const SizedBox(width: AppSpacing.space8),
+            _RoleModifierBadge(modifier: modifier),
           ],
         ],
       ),
-    ),
-  );
+    );
+  }
+}
+
+/// One resolved cast member of a schedule row (issue #969): the character name
+/// the code resolved to, plus its role modifier when the schedule stated one.
+///
+/// A member whose code did NOT resolve never reaches the client (the server
+/// drops unknown codes, ADR-041 `D6`), so an empty row renders no pill instead
+/// of an “unknown cast” warning.
+class _CastPill extends StatelessWidget {
+  const _CastPill({required this.member, super.key});
+
+  final ScheduleCastMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final modifier = member.modifier;
+    final stated = _roleModifierLabel(l10nOf(context), modifier) != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Flexible, not a bare Container: the pill is a `Wrap` child, so it
+        // receives the line width as a bounded maxWidth — a long character
+        // name (or enlarged text) must WRAP here instead of concealing the
+        // modifier badge that follows it. `FlexFit.loose` keeps a short name
+        // at its intrinsic width, i.e. the compact pill, and lets the badge
+        // keep the width it needs before the name claims the rest.
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.space8,
+              vertical: AppSpacing.space2,
+            ),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              member.characterName,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+        if (modifier != null && stated) ...[
+          const SizedBox(width: AppSpacing.space4),
+          _RoleModifierBadge(modifier: modifier),
+        ],
+      ],
+    );
+  }
+}
+
+/// The production role modifier the schedule stated for a cast code (`Dummy`,
+/// `Nur Stimme`, `(OT)`) — the SAME vocabulary the extraction prompt uses.
+///
+/// `none`, an absent modifier and an unknown future value all state NOTHING:
+/// the client never invents a modifier it did not receive.
+class _RoleModifierBadge extends StatelessWidget {
+  const _RoleModifierBadge({required this.modifier});
+
+  final ScheduleRoleModifier modifier;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final label = _roleModifierLabel(l10n, modifier);
+    if (label == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // Distinct and CONSISTENT per modifier, from M3 container roles only: each
+    // `on*Container` pair is designed to pass AA in light AND dark.
+    final (background, foreground) = switch (modifier) {
+      ScheduleRoleModifier.dummy => (
+        scheme.secondaryContainer,
+        scheme.onSecondaryContainer,
+      ),
+      ScheduleRoleModifier.voiceOnly => (
+        scheme.tertiaryContainer,
+        scheme.onTertiaryContainer,
+      ),
+      ScheduleRoleModifier.extraOt => (
+        scheme.primaryContainer,
+        scheme.onPrimaryContainer,
+      ),
+      _ => (scheme.surfaceContainerHighest, scheme.onSurfaceVariant),
+    };
+    return Semantics(
+      // The badge states the modifier AND its meaning: the container colour is
+      // reinforcement, never the only carrier of the information.
+      label: l10n.aiPreviewRoleModifierSemantics(label),
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space8,
+          vertical: AppSpacing.space2,
+        ),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(color: foreground),
+        ),
+      ),
+    );
+  }
+}
+
+/// The pick-up/insert marker of a schedule row (issue #969): the suffix the
+/// SCHEDULE stated (`300.37N` → `N`), rendered verbatim next to its row.
+///
+/// Informational only — apply treats `300.37` and `300.37N` identically. The
+/// suffix alone is cryptic, so the chip carries a screen-reader label that
+/// names what it means.
+class _ShotSuffixChip extends StatelessWidget {
+  const _ShotSuffixChip({required this.suffix, super.key});
+
+  /// The verbatim suffix from `ShootingScheduleRow.shotSuffix`.
+  final String suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Semantics(
+      label: l10nOf(context).aiPreviewShotSuffixSemantics(suffix),
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space8,
+          vertical: AppSpacing.space2,
+        ),
+        decoration: BoxDecoration(
+          // Outlined rather than filled: the suffix marks a DIFFERENT shoot of
+          // the same scene, not a severity of its own.
+          border: Border.all(color: scheme.outline),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.replay, size: 12, color: scheme.onSurfaceVariant),
+            const SizedBox(width: AppSpacing.space2),
+            Text(
+              suffix,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The localized production label of a role modifier, or `null` when the wire
+/// states none (`none`, absent, or a value this client does not know).
+String? _roleModifierLabel(
+  AppLocalizations l10n,
+  ScheduleRoleModifier? modifier,
+) => switch (modifier) {
+  ScheduleRoleModifier.dummy => l10n.aiPreviewRoleModifierDummy,
+  ScheduleRoleModifier.voiceOnly => l10n.aiPreviewRoleModifierVoiceOnly,
+  ScheduleRoleModifier.extraOt => l10n.aiPreviewRoleModifierExtraOt,
+  _ => null,
+};
+
+/// The verbatim shot suffix of [row], or `null` when it states none. A blank
+/// suffix is absence, never an empty chip.
+String? _shotSuffixOf(ShootingScheduleRow row) {
+  final suffix = row.shotSuffix?.trim();
+  return (suffix == null || suffix.isEmpty) ? null : suffix;
+}
+
+/// The cast members [row] actually resolved, in wire order. A member without a
+/// name is dropped rather than rendered as an empty pill.
+List<ScheduleCastMember> _castRefsOf(ShootingScheduleRow row) {
+  final refs = row.castRefs;
+  if (refs == null) return const <ScheduleCastMember>[];
+  return [
+    for (final member in refs)
+      if (member.characterName.trim().isNotEmpty) member,
+  ];
+}
+
+/// True when [row] has anything the review surfaces about it: a resolved cast
+/// member or a pick-up/insert suffix (issue #969).
+bool _rowSurfacesMetadata(ShootingScheduleRow row) =>
+    _shotSuffixOf(row) != null || _castRefsOf(row).isNotEmpty;
+
+/// The chips of ONE schedule row, flattened for a [Wrap].
+List<Widget> _scheduleRowChips(ShootingScheduleRow row) {
+  final suffix = _shotSuffixOf(row);
+  return [
+    if (suffix != null)
+      _ShotSuffixChip(
+        key: Key('ai-preview-shot-suffix-${row.rowRef}'),
+        suffix: suffix,
+      ),
+    for (final member in _castRefsOf(row))
+      _CastPill(
+        key: Key('ai-preview-cast-ref-${row.rowRef}-${member.code}'),
+        member: member,
+      ),
+  ];
+}
+
+/// The legend entries in display order: numeric codes ascending, then any
+/// non-numeric code alphabetically. The wire map is keyed by code, so without
+/// this the order would be insertion order — unreadable for a ~35-entry list.
+List<ScheduleLegendEntry> _sortedLegendEntries(
+  Iterable<ScheduleLegendEntry> entries,
+) {
+  final sorted = entries.toList();
+  sorted.sort((a, b) {
+    final left = int.tryParse(a.code);
+    final right = int.tryParse(b.code);
+    if (left != null && right != null && left != right) {
+      return left.compareTo(right);
+    }
+    if ((left == null) != (right == null)) return left == null ? 1 : -1;
+    return a.code.compareTo(b.code);
+  });
+  return sorted;
 }
 
 /// The per-row outfit provenance badge (OpenSpec
