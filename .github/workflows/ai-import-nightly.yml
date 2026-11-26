@@ -199,6 +199,7 @@ jobs:
       # `/v1/models` answers anonymously), so a rotated catalogue ID is reported
       # for free before anything is paid for.
       - name: Vision catalogue preflight (nightly, zero-token)
+        id: vision-catalogue-preflight
         # Independent of the GDrive/LLM steps above and costs nothing: it reports
         # a rotated catalogue even on a night those are red, but never outlives a
         # cancelled run (`!cancelled()`).
@@ -212,12 +213,21 @@ jobs:
           # A dedicated EURouter key wins; the assistant key is the fallback only
           # when the deployment's text provider IS eurouter — two distinct
           # secrets with a documented fallback, never one shared one.
-          AI_VISION_KEY_EUROUTER: ${{ secrets.AI_VISION_KEY_EUROUTER || (vars.AI_LLM_PROVIDER == 'eurouter' && secrets.AI_LLM_API_KEY) || '' }}
+          #
+          # The selection is the same one the text smoke resolves: an UNSET
+          # `AI_LLM_PROVIDER` defaults to `eurouter` (`DEFAULT_PROVIDER` in
+          # `ai_llm_smoke_test.rs`), and the smoke accepts the `openrouter_eu` /
+          # `openrouter-eu` aliases. Comparing the raw value to `'eurouter'`
+          # alone left the fallback empty in all three of those cases.
+          AI_VISION_KEY_EUROUTER: ${{ secrets.AI_VISION_KEY_EUROUTER || ((vars.AI_LLM_PROVIDER == '' || vars.AI_LLM_PROVIDER == 'eurouter' || vars.AI_LLM_PROVIDER == 'openrouter_eu' || vars.AI_LLM_PROVIDER == 'openrouter-eu') && secrets.AI_LLM_API_KEY) || '' }}
         run: |
           echo "vision required=${AI_VISION_REQUIRED_PROVIDERS:-ovhcloud} advisory=${AI_VISION_ADVISORY_PROVIDERS:-scaleway}"
           # Lengths only, never a prefix or a suffix (the GDRIVE echo precedent).
           echo "vision key lengths: ovhcloud=${#AI_VISION_KEY_OVHCLOUD} scaleway=${#AI_VISION_KEY_SCALEWAY} eurouter=${#AI_VISION_KEY_EUROUTER}"
-          cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture
+          # `--exact`: the filter is a substring match, so an unprefixed
+          # `vision_smoke_catalog_preflight` would also select a future test
+          # whose name merely starts with it.
+          cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_catalog_preflight -- --exact --nocapture
 
       # The paid half: ONE page of `Drehplan_1.pdf` through the production
       # `DocumentStructureExtractor` → `LlmVisionRequest` → `chat_vision_constrained`
@@ -229,7 +239,12 @@ jobs:
       # latency number printed for the cost trend and invite a `429` that reads as
       # an outage (the reasoning-effort probe above does the same).
       - name: Live vision smoke (nightly)
-        if: ${{ !cancelled() }}
+        # The free preflight is the gate for the paid step: a required catalogue
+        # rotation already failed there, so spending money on a page test would
+        # only add a second red line to the same night. `outcome == 'success'`
+        # (not `conclusion`) keeps `continue-on-error` semantics irrelevant, and
+        # an ADVISORY catastrophe still succeeds — it degrades to a WARN.
+        if: ${{ !cancelled() && steps.vision-catalogue-preflight.outcome == 'success' }}
         timeout-minutes: 10
         env:
           AI_VISION_REQUIRED_PROVIDERS: ${{ vars.AI_VISION_REQUIRED_PROVIDERS || 'ovhcloud' }}
@@ -237,7 +252,7 @@ jobs:
           AI_VISION_SMOKE_PAGE: ${{ vars.AI_VISION_SMOKE_PAGE || '2' }}
           AI_VISION_KEY_OVHCLOUD: ${{ secrets.AI_VISION_KEY_OVHCLOUD }}
           AI_VISION_KEY_SCALEWAY: ${{ secrets.AI_VISION_KEY_SCALEWAY }}
-          AI_VISION_KEY_EUROUTER: ${{ secrets.AI_VISION_KEY_EUROUTER || (vars.AI_LLM_PROVIDER == 'eurouter' && secrets.AI_LLM_API_KEY) || '' }}
+          AI_VISION_KEY_EUROUTER: ${{ secrets.AI_VISION_KEY_EUROUTER || ((vars.AI_LLM_PROVIDER == '' || vars.AI_LLM_PROVIDER == 'eurouter' || vars.AI_LLM_PROVIDER == 'openrouter_eu' || vars.AI_LLM_PROVIDER == 'openrouter-eu') && secrets.AI_LLM_API_KEY) || '' }}
           # The page is loaded through the same Vault-backed GDrive source the
           # product uses, exactly like the text smoke above.
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -253,7 +268,10 @@ jobs:
           if [ -z "$GDRIVE_CLIENT_ID" ]; then
             echo "GDRIVE_CLIENT_ID not configured — the live vision smoke will skip (asserts nothing)."
           fi
-          cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke -- --nocapture --test-threads=1
+          # `--exact` the PAID test only: the bare `vision_smoke` substring also
+          # matches `vision_smoke_catalog_preflight`, which would re-run the free
+          # catalogue/key reads here and report their failures under this step.
+          cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_reads_a_schedule_page -- --exact --nocapture --test-threads=1
 
       # Issue #808: one question of each kind against the curated System One
       # endpoint — `200` and a parsed answer per kind, or the provider's own

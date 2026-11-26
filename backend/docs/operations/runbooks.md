@@ -1815,7 +1815,7 @@ one secret per provider, and the split between them is the whole point:
 |---|---|---|---|
 | **Must-pass canary** | `AI_VISION_REQUIRED_PROVIDERS` (`vars`) + `AI_VISION_KEY_OVHCLOUD` (secret) | `ovhcloud` | a failure is **red** |
 | Advisory second voice | `AI_VISION_ADVISORY_PROVIDERS` (`vars`) + `AI_VISION_KEY_SCALEWAY` (secret) | `scaleway` | a failure is one `WARN` line, run stays green |
-| Zero-token reachability | `AI_VISION_KEY_EUROUTER` (secret; falls back to `AI_LLM_API_KEY` only when `AI_LLM_PROVIDER=eurouter`) | — | `GET {base}/key` only, **never** a paid vision call |
+| Zero-token reachability | `AI_VISION_KEY_EUROUTER` (secret; falls back to `AI_LLM_API_KEY` when `AI_LLM_PROVIDER` is unset or selects EURouter — `eurouter`, `openrouter_eu`, `openrouter-eu`) | — | `GET {base}/key` only, **never** a paid vision call |
 | Not a vision provider | — | — | `nebius` stays out of the matrix until the operator attests `ZDR Mode` (see above) |
 
 **Why `ovhcloud` is the oracle, not the production endpoint.** A nightly must answer *"is our code
@@ -1863,14 +1863,45 @@ assertion failure in the smoke, not a finding about the provider.
 **Rotation recipe — a curated model disappears from a catalogue** (the preflight reports
 `smoke-catalogue-rotated` and fails *red* for a required provider, before anything is paid for):
 
-1. Read the provider's live catalogue: `curl -s <curated base>/models` (OVHcloud needs no key).
+1. Read the provider's live catalogue. `ovhcloud`'s `/v1/models` answers **anonymously** (and must be
+   read that way — attaching a credential turns it into a `401`, see above):
+
+   ```bash
+   curl -s https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/models
+   ```
+
+   Every other matrix provider's catalogue is **keyed**, so the same read carries the credential it
+   belongs to (`AI_VISION_KEY_SCALEWAY` here — the `AI_VISION_KEY_<PROVIDER>` convention, never the
+   provider's own docs key name):
+
+   ```bash
+   curl -s -H "Authorization: Bearer $AI_VISION_KEY_SCALEWAY" https://api.scaleway.ai/v1/models
+   ```
+
+   An unauthenticated read of a keyed catalogue answers `401`, which is *not* evidence that the
+   provider rotates IDs — read the failure as a credential question before editing `curated_model_ids`.
 2. Pick the replacement ID **from that response** and update `curated_model_ids` in
    `crates/infra/src/ai/provider_registry.rs` plus the `ai_model_pricing` seed for it.
 3. Update `VISION_RATE_CARDS` in `crates/integration-tests/tests/ai_llm_smoke_test.rs` (it must name a
    curated model — a unit test enforces that) and the "verified" date with its source link in
    ADR-041 `D2.1`.
-4. Re-run the preflight: `AI_VISION_REQUIRED_PROVIDERS=ovhcloud cargo test -p integration-tests --test
-   ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture`.
+4. Re-run the preflight with **the rotated provider as the REQUIRED one** — `scaleway` is advisory by
+   default, so `AI_VISION_REQUIRED_PROVIDERS=ovhcloud` would keep the run green even if the `scaleway`
+   catalogue check failed. Pass the provider whose model changed plus its credential:
+
+   ```bash
+   # a Scaleway rotation, verified as REQUIRED (scaleway stays advisory in the nightly itself)
+   AI_VISION_REQUIRED_PROVIDERS=scaleway AI_VISION_ADVISORY_PROVIDERS=ovhcloud \
+     AI_VISION_KEY_SCALEWAY="$AI_VISION_KEY_SCALEWAY" \
+     cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture
+   ```
+
+   An OVHcloud rotation keeps the anonymous read and needs no credential:
+
+   ```bash
+   AI_VISION_REQUIRED_PROVIDERS=ovhcloud AI_VISION_ADVISORY_PROVIDERS=scaleway \
+     cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture
+   ```
 
 **Locally.** The preflight is gated on the matrix being *declared* (the nightly sets both variables, a
 plain `cargo test` does not), so a pull-request run of the binary stays hermetic:

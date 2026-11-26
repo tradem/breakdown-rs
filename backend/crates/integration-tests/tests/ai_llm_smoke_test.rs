@@ -55,11 +55,12 @@ use anyhow::{Context, Result, anyhow};
 use breakdown_core::ai::{
     AccountProbeRequest, AccountProbeStatus, AiImportBounds, CuratedLlmProvider,
     DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentKind, DocumentStructureExtractor,
-    DraftScene, ExtractionOptions, LlmChatRequest, LlmClient, LlmProvider, LlmVisionPageInput,
-    LlmVisionRequest, ProbeCapability, ProviderAccountProbe, RejectedOutfitReason, RenderOptions,
-    SceneChunk, ScheduleCarryOver, ScriptContext, character_identity, extract_scenes,
-    probe_capability, render_schedule_carry_over_context, render_schedule_page_spatial_hint,
-    verify_draft_outfits, vision_egress_compliant, vision_egress_policy_for_config,
+    DraftScene, ExtractionOptions, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    LlmVisionPageInput, LlmVisionRequest, ProbeCapability, ProviderAccountProbe,
+    RejectedOutfitReason, RenderOptions, SceneChunk, ScheduleCarryOver, ScriptContext,
+    character_identity, extract_scenes, probe_capability, render_schedule_carry_over_context,
+    render_schedule_page_spatial_hint, verify_draft_outfits, vision_egress_compliant,
+    vision_egress_policy_for_config,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::ports::{CredentialVault, GDriveCredentialBundle};
@@ -1507,6 +1508,31 @@ const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(30);
 /// (the provider's own text only), and never unbounded.
 const PROVIDER_BODY_ECHO_CHARS: usize = 200;
 
+/// The ADR marker the pre-egress gate's refusal carries
+/// (`OpenAiCompatibleChatClient::chat_vision_constrained`).
+///
+/// [`local_egress_refusal`] needs it because a `Validation` error alone does NOT
+/// prove the gate ran: provider-side validation failures (“invalid LLM
+/// response”, “vision LLM JSON did not match …”) are `Validation` too.
+const VISION_GATE_MARKER: &str = "ADR-041 D2";
+
+/// Whether `error` is the PRE-EGRESS gate's own refusal rather than a provider
+/// failure that merely happened on a non-compliant provider (CodeRabbit review,
+/// PR #993).
+///
+/// A `401`, a timeout or an exhausted quota is NOT evidence that the gate
+/// refused the page — the request would first have had to reach the socket. Both
+/// this helper and
+/// [`nebius_vision_egress_is_refused_in_process_without_attestation`] therefore
+/// assert the same two markers the gate writes: the `Validation` variant and the
+/// policy/ADR text it names.
+fn local_egress_refusal(error: &DomainError) -> bool {
+    let message = format!("{error}");
+    matches!(error, DomainError::Validation { .. })
+        && message.contains("Zero Data Retention")
+        && message.contains(VISION_GATE_MARKER)
+}
+
 /// The preferred vision model of one provider plus the rate card its cost line
 /// is priced with (USD per million tokens).
 ///
@@ -1571,6 +1597,28 @@ fn vision_key_env(provider: LlmProvider) -> String {
     )
 }
 
+/// Whether `provider` may NEVER be a row of the live vision matrix (`D2`).
+///
+/// The rule is enforced here instead of being left to the operator's repository
+/// variables, because both exclusions are security/cost decisions rather than
+/// taste (`D2`, and the `nebius` note in `D3`):
+///
+/// * `eurouter` is a reseller fronting many upstreams. Its value is catalogue
+///   depth, and it gets the zero-token `GET {base}/key` read — never a paid
+///   vision call. A row here would both spend money on the ambiguous oracle the
+///   canary was moved away from AND route page images through an account whose
+///   ZDR declaration nobody re-verifies;
+/// * `nebius` is fail-closed until its account-level `ZDR Mode` is attested, so
+///   `vision_egress_policy_for_config(nebius, false)` is deliberately
+///   non-compliant. Listing it would turn the smoke into an assertion that the
+///   gate MISSES a breach.
+///
+/// `ollama` is not excluded: it is compliant by construction (zero egress) and
+/// has no `AI_VISION_KEY_*` credential, so it skips itself.
+fn vision_matrix_excluded(provider: LlmProvider) -> bool {
+    matches!(provider, LlmProvider::EURouter | LlmProvider::Nebius)
+}
+
 /// Resolve the matrix from `AI_VISION_REQUIRED_PROVIDERS` +
 /// `AI_VISION_ADVISORY_PROVIDERS` (comma-separated provider keys).
 ///
@@ -1598,6 +1646,19 @@ fn vision_targets() -> Result<Vec<VisionTarget>> {
                      unknown provider key: {key}"
                 )
             })?;
+            // A declared-but-forbidden provider is a CONFIGURATION error, not a
+            // row to execute: `eurouter` would make a paid vision call the `D2`
+            // decision forbids, and an unattested `nebius` row would assert a
+            // gate breach. Failing here (before any request) keeps the night
+            // free instead of quietly listing a provider the policy excludes.
+            if vision_matrix_excluded(provider) {
+                return Err(anyhow!(
+                    "AI_VISION_REQUIRED_PROVIDERS/AI_VISION_ADVISORY_PROVIDERS names {}, which \
+                     is never a vision provider: eurouter gets the zero-token `/key` read (D2) \
+                     and nebius stays out of the matrix until its account ZDR is attested",
+                    provider.as_str()
+                ));
+            }
             // Listed under BOTH variables: the stricter verdict wins, otherwise
             // a duplicate row silently downgrades a must-pass check to a warning.
             if let Some(existing) = targets
@@ -1678,6 +1739,48 @@ fn provider_body_head(body: &str) -> String {
     body.chars().take(PROVIDER_BODY_ECHO_CHARS).collect()
 }
 
+/// The requests an attempt already billed BEFORE it failed (issue #970): the
+/// production client attaches them to the error and the next attempt seeds its
+/// accounting from them, so a smoke that mapped the error to a bare code
+/// silently dropped the night's spend for that provider.
+struct VisionBilled {
+    /// The summed counters of the billed responses, one entry per paid request
+    /// in the client's ledger.
+    usage: LlmCallUsage,
+    /// `None` when the provider has no rate card in this harness — the same
+    /// honest absence [`VisionRow::cost_micro_usd`] reports.
+    cost_micro_usd: Option<u64>,
+}
+
+impl VisionBilled {
+    /// `None` when the error carries no usable ledger (no billed response yet,
+    /// or an error variant that cannot carry one).
+    fn from_error(error: &DomainError, provider: LlmProvider) -> Option<Self> {
+        let calls = error.billed_usage()?;
+        let usage = LlmCallUsage::total(calls);
+        if calls.is_empty() || usage == LlmCallUsage::default() {
+            return None;
+        }
+        Some(Self {
+            usage,
+            cost_micro_usd: vision_cost_micro_usd(provider, usage),
+        })
+    }
+
+    /// The `[billed …]` suffix of a failure line, empty when nothing was billed.
+    fn note(billed: Option<&Self>) -> String {
+        match billed {
+            None => String::new(),
+            Some(billed) => format!(
+                " [already billed in={} out={} cost_usd={}]",
+                billed.usage.tokens_in,
+                billed.usage.tokens_out,
+                cost_label(billed.cost_micro_usd)
+            ),
+        }
+    }
+}
+
 /// One failed matrix row, with the severity that decides its verdict.
 struct VisionFailure {
     severity: VisionSeverity,
@@ -1691,6 +1794,8 @@ struct VisionFailure {
     /// `{context}.{reason}`, so the two shapes cannot be confused in a grep.
     code: &'static str,
     detail: String,
+    /// The spend that happened before the failure, when the error carried it.
+    billed: Option<VisionBilled>,
 }
 
 /// A failed paid page: its code plus the provider's own detail, so a red run
@@ -1698,6 +1803,27 @@ struct VisionFailure {
 struct VisionCallFailure {
     code: &'static str,
     detail: String,
+    /// The spend the attempt already caused before it failed.
+    billed: Option<VisionBilled>,
+    /// Whether this failure must be RED whatever the row's declared severity.
+    ///
+    /// A gate verdict that contradicts the policy is a statement about OUR code,
+    /// not about the provider's night, so an advisory row may not downgrade it to
+    /// a WARN line.
+    policy_contradiction: bool,
+}
+
+impl VisionCallFailure {
+    /// A plain provider/decoding failure of this row — its severity is the
+    /// row's, and nothing was necessarily billed.
+    fn provider(code: &'static str, detail: String) -> Self {
+        Self {
+            code,
+            detail,
+            billed: None,
+            policy_contradiction: false,
+        }
+    }
 }
 
 /// One successful paid page, as reported to the cost trend.
@@ -1722,6 +1848,20 @@ fn cost_label(micro_usd: Option<u64>) -> String {
     }
 }
 
+/// What `usage` cost at the provider's rate card; `None` when the card is
+/// missing or a price does not parse (printed `cost_usd=unknown`).
+fn vision_cost_micro_usd(provider: LlmProvider, usage: LlmCallUsage) -> Option<u64> {
+    let card = vision_rate_card(provider)?;
+    let price_in = parse_nano_per_mtok(card.usd_in_per_mtok)?;
+    let price_out = parse_nano_per_mtok(card.usd_out_per_mtok)?;
+    cost_micro_usd(
+        usage.tokens_in,
+        usage.tokens_out,
+        Some(price_in),
+        Some(price_out),
+    )
+}
+
 /// The `page=` field of a failure line (`-` when the failure has no page).
 fn vision_page_label(page: Option<u32>) -> String {
     page.map_or_else(|| "-".to_owned(), |page| page.to_string())
@@ -1735,12 +1875,13 @@ fn report_vision_failures(failures: &[VisionFailure]) -> Result<()> {
         .filter(|failure| failure.severity == VisionSeverity::Advisory)
     {
         tracing::warn!(
-            "vision-smoke advisory-degraded provider={} code={} model={} page={} — {}",
+            "vision-smoke advisory-degraded provider={} code={} model={} page={} — {}{}",
             failure.provider.as_str(),
             failure.code,
             failure.model,
             vision_page_label(failure.page),
-            failure.detail
+            failure.detail,
+            VisionBilled::note(failure.billed.as_ref())
         );
     }
     let required: Vec<&VisionFailure> = failures
@@ -1754,12 +1895,13 @@ fn report_vision_failures(failures: &[VisionFailure]) -> Result<()> {
         .iter()
         .map(|failure| {
             format!(
-                "{} / {} / page {} / {}: {}",
+                "{} / {} / page {} / {}: {}{}",
                 failure.provider.as_str(),
                 failure.model,
                 vision_page_label(failure.page),
                 failure.code,
-                failure.detail
+                failure.detail,
+                VisionBilled::note(failure.billed.as_ref())
             )
         })
         .collect();
@@ -1908,6 +2050,7 @@ async fn vision_smoke_catalog_preflight() -> Result<()> {
                              `curated_model_ids` (and VISION_RATE_CARDS) before the next paid run",
                             missing.join(", ")
                         ),
+                        billed: None,
                     });
                 }
             }
@@ -1918,6 +2061,7 @@ async fn vision_smoke_catalog_preflight() -> Result<()> {
                 page: None,
                 code: "smoke-catalogue-unreachable",
                 detail: format!("{error:#}"),
+                billed: None,
             }),
         }
     }
@@ -1962,6 +2106,7 @@ async fn vision_smoke_catalog_preflight() -> Result<()> {
                              exhausted balance) — rotate AI_VISION_KEY_EUROUTER (or AI_LLM_API_KEY \
                              when it is the fallback)"
                         .to_owned(),
+                    billed: None,
                 }),
                 // A timeout/transport failure is the reseller having a bad night,
                 // not a regression of ours (`D1`): one WARN, never red.
@@ -1975,12 +2120,37 @@ async fn vision_smoke_catalog_preflight() -> Result<()> {
     report_vision_failures(&failures)
 }
 
+/// Whether the decoded page was cut off at the provider's output ceiling.
+///
+/// The decision is made on the TERMINAL `finish_reason`, never on summed output
+/// (CodeRabbit review, PR #993): the ledger sums every billed request of the
+/// attempt, so a truncated first request plus a complete retry can reach
+/// `max_tokens` while the answer that was decoded is whole.
+///
+/// `finish_reason == None` (a provider that reports no terminal status) is only
+/// decidable for a single billed request — then the sum IS that response's own
+/// output. With a retry in the ledger the sum cannot be attributed to any one
+/// response, and a guess would be a false red.
+fn page_was_truncated(
+    finish_reason: Option<&str>,
+    billed_calls: usize,
+    tokens_out: u64,
+    max_tokens: u32,
+) -> bool {
+    match finish_reason {
+        Some(reason) => reason == "length",
+        None => billed_calls == 1 && tokens_out >= u64::from(max_tokens),
+    }
+}
+
 /// One real page through the production vision path, measured.
 ///
 /// The gate verdict is asserted FIRST: for a provider whose policy is not
 /// compliant without an attestation, a SUCCESSFUL call is a failure of this
 /// harness ("gate admitted an unattested account"), and a refusal is the
-/// declared behaviour — never "fixed" by setting the attestation in CI.
+/// declared behaviour — never "fixed" by setting the attestation in CI. Only a
+/// refusal the gate itself produced counts as that declared behaviour: a
+/// provider error is no proof that the request was stopped locally.
 async fn vision_smoke_call(
     target: &VisionTarget,
     api_key: &str,
@@ -1999,6 +2169,8 @@ async fn vision_smoke_call(
         .map_err(|error| VisionCallFailure {
             code: error.code().code,
             detail: format!("{error}"),
+            billed: None,
+            policy_contradiction: false,
         })?;
     let request = LlmVisionRequest {
         provider,
@@ -2020,8 +2192,16 @@ async fn vision_smoke_call(
     let outcome = client.chat_vision_constrained(&request).await;
     let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     if !expected_to_egress {
+        // `D2`: the declared behaviour is a LOCAL refusal, so only a refusal the
+        // gate itself produced proves anything. Both other arms are statements
+        // about OUR code and stay RED whatever the row's severity:
+        //
+        // * a SUCCESS means the gate regressed and page images left the process;
+        // * a provider/transport failure means the request was NOT stopped before
+        //   the socket, so "refused as declared" would be a false comfort — a
+        //   `401` or a timeout is not evidence that the gate ran.
         return Err(match outcome {
-            Ok(_) => VisionCallFailure {
+            Ok(success) => VisionCallFailure {
                 code: "smoke-gate-regressed",
                 detail: format!(
                     "a vision call to {} SUCCEEDED although `vision_egress_policy_for_config` \
@@ -2029,64 +2209,88 @@ async fn vision_smoke_call(
                      left the process",
                     provider.as_str()
                 ),
+                billed: Some(VisionBilled {
+                    cost_micro_usd: vision_cost_micro_usd(provider, success.usage()),
+                    usage: success.usage(),
+                }),
+                policy_contradiction: true,
             },
-            Err(error) => VisionCallFailure {
+            Err(error) if local_egress_refusal(&error) => VisionCallFailure {
                 code: error.code().code,
                 detail: format!(
                     "refused as declared ({} is not compliant without an attestation) — do not \
                      list it as a vision provider: {error}",
                     provider.as_str()
                 ),
+                billed: VisionBilled::from_error(&error, provider),
+                policy_contradiction: false,
+            },
+            Err(error) => VisionCallFailure {
+                code: "smoke-gate-not-enforced",
+                detail: format!(
+                    "the pre-egress gate produced no refusal for {}, a provider whose policy is \
+                     not compliant without an attestation: the call failed on its own ({error}), \
+                     so the page may have left the process — check the ADR-041 D2 gate before \
+                     trusting this row",
+                    provider.as_str()
+                ),
+                billed: VisionBilled::from_error(&error, provider),
+                policy_contradiction: true,
             },
         });
     }
     let outcome = outcome.map_err(|error| VisionCallFailure {
         code: error.code().code,
         detail: format!("{error}"),
+        billed: VisionBilled::from_error(&error, provider),
+        policy_contradiction: false,
     })?;
     let usage = outcome.usage();
     if usage.tokens_in == 0 || usage.tokens_out == 0 {
-        return Err(VisionCallFailure {
-            code: "smoke-zero-usage",
-            detail: format!(
+        return Err(VisionCallFailure::provider(
+            "smoke-zero-usage",
+            format!(
                 "the provider reported in={} out={} tokens — a billed page with no measured \
                  usage cannot be trended",
                 usage.tokens_in, usage.tokens_out
             ),
-        });
+        ));
     }
     if outcome.output.rows.is_empty() {
-        return Err(VisionCallFailure {
-            code: "smoke-no-rows",
-            detail: format!(
+        return Err(VisionCallFailure::provider(
+            "smoke-no-rows",
+            format!(
                 "the decoded SchedulePageExtraction carried 0 rows ({} legend entries)",
                 outcome.output.legend_entries.len()
             ),
-        });
+        ));
     }
-    if usage.tokens_out >= u64::from(max_tokens) {
-        // The client turns a `finish_reason=length` answer into a hard error only
-        // after its bounded retries, so reaching the ceiling here is the
-        // remaining shape of that truncation.
-        return Err(VisionCallFailure {
-            code: "smoke-truncated",
-            detail: format!(
-                "tokens_out={} reached the {max_tokens} output ceiling \
-                 (finish_reason=length): the page was cut off",
-                usage.tokens_out
+    // Truncation is a property of the TERMINAL response, not of the summed
+    // counters: `usage()` adds every billed request of the attempt, so a first
+    // request that spends its whole output ceiling followed by a retry that
+    // returns a complete page reaches `max_tokens` in the SUM while the answer
+    // that was decoded is whole. (CodeRabbit review, PR #993.)
+    let truncated = page_was_truncated(
+        outcome.finish_reason(),
+        outcome.calls().len(),
+        usage.tokens_out,
+        max_tokens,
+    );
+    if truncated {
+        return Err(VisionCallFailure::provider(
+            "smoke-truncated",
+            format!(
+                "the decoded page stopped at the {max_tokens} output-token ceiling \
+                 (finish_reason={}): the page was cut off (billed in={} out={} over {} \
+                 request(s))",
+                outcome.finish_reason().unwrap_or("unreported"),
+                usage.tokens_in,
+                usage.tokens_out,
+                outcome.calls().len()
             ),
-        });
+        ));
     }
-    let cost_micro_usd = vision_rate_card(provider).and_then(|card| {
-        let price_in = parse_nano_per_mtok(card.usd_in_per_mtok)?;
-        let price_out = parse_nano_per_mtok(card.usd_out_per_mtok)?;
-        cost_micro_usd(
-            usage.tokens_in,
-            usage.tokens_out,
-            Some(price_in),
-            Some(price_out),
-        )
-    });
+    let cost_micro_usd = vision_cost_micro_usd(provider, usage);
     Ok(VisionRow {
         provider,
         model: model.to_owned(),
@@ -2224,6 +2428,7 @@ async fn vision_smoke_reads_a_schedule_page() -> Result<()> {
                     page: Some(page_number),
                     code: "smoke-no-curated-model",
                     detail: format!("{error:#}"),
+                    billed: None,
                 });
                 continue;
             }
@@ -2259,12 +2464,21 @@ async fn vision_smoke_reads_a_schedule_page() -> Result<()> {
                 row.rows
             ),
             Err(failure) => failures.push(VisionFailure {
-                severity: target.severity,
+                // A policy contradiction is about OUR gate, so it is RED even on
+                // an advisory row: an advisory provider that gets a page through
+                // a regressed gate (or is not refused locally at all) is a
+                // finding about the code, not about the provider's night.
+                severity: if failure.policy_contradiction {
+                    VisionSeverity::Required
+                } else {
+                    target.severity
+                },
                 provider: target.provider,
                 model: model.to_owned(),
                 page: Some(page_number),
                 code: failure.code,
                 detail: failure.detail,
+                billed: failure.billed,
             }),
         }
     }
@@ -2323,7 +2537,59 @@ async fn nebius_vision_egress_is_refused_in_process_without_attestation() -> Res
         format!("{error}").contains("Zero Data Retention"),
         "the refusal must name the policy it enforced, got {error}"
     );
+    // The SAME predicate `vision_smoke_call` uses to accept a refusal as the
+    // declared behaviour (`D3`): a provider error must never be read as proof
+    // that the gate refused, so both sites share one rule.
+    assert!(
+        local_egress_refusal(&error),
+        "the refusal must be recognisable as the GATE's own, got {error}"
+    );
     Ok(())
+}
+
+/// A gate contradiction is a statement about our code, so it may not be
+/// downgraded by an advisory row — and a provider failure is not a refusal.
+#[test]
+fn a_gate_contradiction_is_distinguishable_from_a_provider_failure() {
+    let gate = DomainError::validation(
+        "provider Nebius does not declare Zero Data Retention, no training on inputs, and EU \
+         data residency (or is missing the AI config's ZDR attestation); multimodal page-image \
+         egress is refused (ADR-041 D2)",
+    );
+    assert!(
+        local_egress_refusal(&gate),
+        "the gate's own refusal must be recognised"
+    );
+    // A provider failure carries no gate marker: a `401`, a timeout or an
+    // exhausted quota proves nothing about the gate having run.
+    for provider_side in [
+        DomainError::validation("invalid LLM response: expected value at line 1 column 1"),
+        DomainError::service_unavailable("vision provider answered 503"),
+        DomainError::service_unavailable("llm provider request timed out"),
+    ] {
+        assert!(
+            !local_egress_refusal(&provider_side),
+            "{provider_side} is a provider failure, not a gate refusal"
+        );
+    }
+    // An advisory row keeps its severity for an ordinary provider failure, and a
+    // policy contradiction is escalated to REQUIRED.
+    let contradiction = VisionCallFailure {
+        code: "smoke-gate-regressed",
+        detail: "gate regressed".to_owned(),
+        billed: None,
+        policy_contradiction: true,
+    };
+    let escalated = if contradiction.policy_contradiction {
+        VisionSeverity::Required
+    } else {
+        VisionSeverity::Advisory
+    };
+    assert_eq!(escalated, VisionSeverity::Required);
+    assert!(
+        !VisionCallFailure::provider("smoke-no-rows", "0 rows".to_owned()).policy_contradiction,
+        "an ordinary failure must stay non-blocking on an advisory row"
+    );
 }
 
 /// The capability registry, not this harness, is what makes `eurouter`'s
@@ -2352,6 +2618,58 @@ fn the_ovhcloud_catalogue_is_read_without_a_credential() {
     assert!(!catalogue_reads_anonymously(LlmProvider::Scaleway));
     assert!(!catalogue_reads_anonymously(LlmProvider::Nebius));
     assert!(!catalogue_reads_anonymously(LlmProvider::EURouter));
+}
+
+/// `D2`/`D3`: the two providers that are declared OUT of the matrix stay out even
+/// when an operator's repository variable names them, because both exclusions
+/// are security/cost decisions rather than taste.
+#[test]
+fn the_vision_matrix_excludes_eurouter_and_nebius() {
+    assert!(vision_matrix_excluded(LlmProvider::EURouter));
+    assert!(vision_matrix_excluded(LlmProvider::Nebius));
+    assert!(!vision_matrix_excluded(LlmProvider::Ovhcloud));
+    assert!(!vision_matrix_excluded(LlmProvider::Scaleway));
+    // Local, zero egress, and without an `AI_VISION_KEY_*` credential: it skips
+    // itself instead of being an excluded row.
+    assert!(!vision_matrix_excluded(LlmProvider::Ollama));
+    // The defaults must never trip the exclusion at boot of the nightly.
+    for key in DEFAULT_VISION_REQUIRED_PROVIDERS
+        .iter()
+        .chain(DEFAULT_VISION_ADVISORY_PROVIDERS.iter())
+    {
+        let provider = resolve_provider(key);
+        assert!(
+            provider.is_some(),
+            "{key} is a default vision provider and must resolve"
+        );
+        let Some(provider) = provider else {
+            continue;
+        };
+        assert!(
+            !vision_matrix_excluded(provider),
+            "{key} is a default vision provider and must stay inside the matrix"
+        );
+    }
+}
+
+/// Truncation is decided by the TERMINAL `finish_reason`, not by summed output
+/// (CodeRabbit review, PR #993): the regression it prevents is a truncated first
+/// request plus a complete retry, which sums to the output ceiling while the page
+/// that was decoded is whole.
+#[test]
+fn truncation_follows_the_terminal_finish_reason_not_the_summed_output() {
+    // The finding: 8 192 summed output tokens over two billed requests, terminal
+    // status `stop` — the page is complete and must NOT be called truncated.
+    assert!(!page_was_truncated(Some("stop"), 2, 8_192, 8_192));
+    // The same sum with a single request is attributable, so the ceiling stands.
+    assert!(page_was_truncated(None, 1, 8_192, 8_192));
+    // A terminal `length` is the truncation, whatever the sum says.
+    assert!(page_was_truncated(Some("length"), 1, 100, 8_192));
+    assert!(page_was_truncated(Some("length"), 3, 9_000, 8_192));
+    // Another terminal status on a single request is not truncation.
+    assert!(!page_was_truncated(Some("stop"), 1, 100, 8_192));
+    // No terminal status after a retry: undecidable, so never a false red.
+    assert!(!page_was_truncated(None, 2, 20_000, 8_192));
 }
 
 #[test]

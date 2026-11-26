@@ -377,7 +377,11 @@ impl OpenAiCompatibleChatClient {
             };
             match serde_json::from_str(content) {
                 Ok(context) => {
-                    return Ok(LlmCallOutcome::from_calls(context, billed));
+                    // The terminal status of the decoded response travels with the
+                    // outcome (issue #974): a caller that must decide "was this
+                    // answer cut off?" cannot use the summed ledger.
+                    return Ok(LlmCallOutcome::from_calls(context, billed)
+                        .with_finish_reason(finish_reason.map(str::to_owned)));
                 }
                 Err(error) => {
                     match next_truncation_budget(finish_reason, budget, truncation_retries) {
@@ -578,7 +582,10 @@ impl OpenAiCompatibleChatClient {
                 }
             };
             match serde_json::from_str(content) {
-                Ok(decoded) => return Ok(LlmCallOutcome::from_calls(decoded, billed)),
+                Ok(decoded) => {
+                    return Ok(LlmCallOutcome::from_calls(decoded, billed)
+                        .with_finish_reason(finish_reason.map(str::to_owned)));
+                }
                 Err(error) => {
                     match next_truncation_budget(finish_reason, budget, truncation_retries) {
                         Some(grown) => {
@@ -628,10 +635,11 @@ impl LlmClient for OpenAiCompatibleChatClient {
             .request_decoded::<ShootingScheduleSchema>(&req, schema, "ShootingSchedule")
             .await?;
         let calls = decoded.calls().to_vec();
-        Ok(LlmCallOutcome::from_calls(
-            decoded.output.into_core(),
-            calls,
-        ))
+        let finish_reason = decoded.finish_reason().map(str::to_owned);
+        Ok(
+            LlmCallOutcome::from_calls(decoded.output.into_core(), calls)
+                .with_finish_reason(finish_reason),
+        )
     }
 
     async fn chat_vision_constrained(
@@ -668,8 +676,9 @@ impl LlmClient for OpenAiCompatibleChatClient {
             .request_vision_decoded::<SchedulePageExtractionSchema>(req, "schedule_page")
             .await?;
         let calls = decoded.calls().to_vec();
+        let finish_reason = decoded.finish_reason().map(str::to_owned);
         let output = decoded.output.into_core()?;
-        Ok(LlmCallOutcome::from_calls(output, calls))
+        Ok(LlmCallOutcome::from_calls(output, calls).with_finish_reason(finish_reason))
     }
 }
 
