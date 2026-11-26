@@ -4404,6 +4404,78 @@ void main() {
       );
       expect(repo.healthCalls, containsAll(<String>['openai', 'neuralwatt']));
     });
+
+    // Issue #969 §3: the #968 EU/ZDR vision providers must be first-class
+    // options — the catalog drives the picker, so no client-side allowlist may
+    // filter them out, and the health probe must ask with the wire key.
+    for (final (provider, key) in const [
+      (LlmProvider.scaleway, 'scaleway'),
+      (LlmProvider.ovhcloud, 'ovhcloud'),
+      (LlmProvider.nebius, 'nebius'),
+    ]) {
+      testWidgets('the #968 provider $key is probed under its wire key, with '
+          'no per-provider special case', (tester) async {
+        await setupContainer(
+          discoveryValue: Right([_config(provider: provider)]),
+          // The catalog is the authority: the picker's committed value is the
+          // stored config's provider, so the served rows must name it.
+          providersValue: Right([_provider(key, provider)]),
+        );
+        await pumpScreen(tester);
+
+        // The extraction card renders for EVERY provider the catalog serves —
+        // the vision UI has no allowlist of its own.
+        expect(
+          find.byKey(const Key('ai-config-provider-health')),
+          findsOneWidget,
+          reason: '$key must render its health card',
+        );
+        expect(
+          repo.healthCalls,
+          contains(key),
+          reason: '$key is the wire key the route accepts',
+        );
+      });
+    }
+
+    testWidgets('the create-flow provider picker lists all three #968 '
+        'providers from the catalog (no client-side filter)', (tester) async {
+      await setupContainer(
+        providersValue: Right([
+          _provider('scaleway', LlmProvider.scaleway),
+          _provider('ovhcloud', LlmProvider.ovhcloud),
+          _provider('nebius', LlmProvider.nebius),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // Selectable, not merely listed: the menu entry is tapped and the
+      // resulting selection is read back off the closed field. A text-only
+      // assertion would pass for a DISABLED item too, so it cannot carry the
+      // requirement.
+      for (final key in const ['scaleway', 'ovhcloud', 'nebius']) {
+        await tester.tap(find.byKey(const Key('ai-provider-picker')));
+        await tester.pumpAndSettle();
+        // `.last` is the menu copy: the closed field keeps every entry in its
+        // sizing `IndexedStack`, so the first match is not the tappable one.
+        await tester.tap(find.text(key).last);
+        await tester.pumpAndSettle();
+
+        final picker = tester.widget<DropdownButtonFormField<String>>(
+          find.byKey(const Key('ai-provider-picker')),
+        );
+        expect(
+          picker.initialValue,
+          key,
+          reason: '$key is served by the catalog and must be selectable',
+        );
+        expect(
+          picker.onChanged,
+          isNotNull,
+          reason: '$key must not render as a disabled entry',
+        );
+      }
+    });
   });
 
   // --- aiConfigErrorCopy: the screen's whole error surface --------------------
