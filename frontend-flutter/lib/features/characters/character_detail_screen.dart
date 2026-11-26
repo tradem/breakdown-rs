@@ -18,6 +18,7 @@ import '../outfits/outfit_list_section.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
 import '../../design/components/breakdown_app_bar.dart';
+import '../../design/scroll_insets.dart';
 
 /// `CharacterDetailScreen` — contact + measurements editors.
 ///
@@ -63,7 +64,7 @@ class CharacterDetailScreen extends ConsumerWidget {
           child: ListView(
             key: Key('character-detail-$characterId'),
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
+            padding: withBottomInset(context, const EdgeInsets.all(16)),
             children: [
               if (state.commandError case final error?)
                 _InlineError(

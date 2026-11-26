@@ -39,10 +39,19 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   its per-destination presence semantics), which is what leaves the content
   scrolling under the bar instead of being truncated above it. The bar's four
   decisions are DTCG tokens (`component.navigationBar.{height, tintAlpha,
-  planeLiftAlpha, blurSigma}`, 80 dp / 0.72 / 0.06 / 12 px) read by
+  planeLiftAlpha, blurSigma}`, 80 dp / 0.80 / 0.06 / 12 px) read by
   `NavigationBarMetrics`, the client's first glass surface; the tint — not the
   blur — carries the contrast budget, measured at ≥ 4.5:1 for labels and ≥ 3:1
-  for icons/indicator against the worst-case blurred backdrop in both themes.
+  for icons against EVERY backdrop extreme (pure white and pure black, in both
+  themes — the extreme that flatters one theme is the other's worst case), with
+  the selected icon ≥ 3:1 on the opaque indicator pill, whose own edge is
+  decorative. `tintAlpha` moved 0.72 → 0.80 because the corrected test measured
+  0.72 at 4.12:1 (light) / 3.86:1 (dark): below the AA budget the spec states.
+  Scrollables that pass a `padding` of their own — the Cast piece overview's
+  `CustomScrollView` and the scene/character/outfit/report detail lists — now
+  extend it by `withBottomInset` (`lib/design/scroll_insets.dart`): Flutter adds
+  the ambient inset only when the padding is null, so without it their last row
+  rested behind the bar.
   While the keyboard is open the same plane paints opaque and the filter is
   dropped. Medium/expanded (rail/drawer) are deliberately untouched. Two new
   goldens render scrolled content under the bar; four existing goldens that

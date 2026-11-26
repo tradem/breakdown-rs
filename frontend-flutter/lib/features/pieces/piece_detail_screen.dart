@@ -20,6 +20,7 @@ import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/photo_repository.dart';
 import '../../design/material_icons.dart';
+import '../../design/scroll_insets.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
@@ -78,7 +79,7 @@ class PieceDetailScreen extends ConsumerWidget {
         child: ListView(
           key: Key('piece-detail-$pieceId'),
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
+          padding: withBottomInset(context, const EdgeInsets.all(16)),
           children: [
             PieceDetailPanel(
               season: season,

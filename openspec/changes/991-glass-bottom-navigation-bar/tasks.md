@@ -10,7 +10,7 @@
       (finite JSON number, no aliases), documented in the header comment and
       listed in the supported-type error message.
 - [x] 1.2 `design/tokens/component.json` — new `component.navigationBar`
-      group: `height` (80 px), `tintAlpha` (0.72), `planeLiftAlpha` (0.06),
+      group: `height` (80 px), `tintAlpha` (0.80), `planeLiftAlpha` (0.06),
       `blurSigma` (12 px), each with the decision it states in `$description`.
 - [x] 1.3 `bash scripts/build-tokens.sh` — regenerated
       `frontend-flutter/lib/design/gen/design_tokens.g.dart` (74 → 78 tokens),

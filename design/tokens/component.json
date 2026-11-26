@@ -39,8 +39,8 @@
       },
       "tintAlpha": {
         "$type": "number",
-        "$value": 0.72,
-        "$description": "Opacity of the glass tint painted over the blurred backdrop, in [0, 1]. This carries the WCAG contrast budget: pure blur over costume/continuity photography destroys label and indicator contrast, so the tint (not the blur) keeps text at >= 4.5:1 against the worst-case blurred backdrop (white in light mode, black in dark) — asserted in test/design/navigation_bar_metrics_test.dart. 0.72 leaves 28 % of the backdrop visible, which is what makes the bar read as glass."
+        "$value": 0.8,
+        "$description": "Opacity of the glass tint painted over the blurred backdrop, in [0, 1]. This carries the WCAG contrast budget: pure blur over costume/continuity photography destroys label and indicator contrast, so the tint (not the blur) keeps text at >= 4.5:1 against the worst-case blurred backdrop — BOTH extremes (pure white AND pure black) in BOTH themes, because a dark backdrop darkens the light theme's bar and a light one lightens the dark theme's, so the extreme that helps one theme is the worst case for the other. Asserted in test/design/navigation_bar_metrics_test.dart. 0.80 leaves 20 % of the backdrop visible, which is what makes the bar read as glass; 0.72 measured 4.12:1 (light) / 3.86:1 (dark) and therefore missed the budget at the true worst case."
       },
       "planeLiftAlpha": {
         "$type": "number",

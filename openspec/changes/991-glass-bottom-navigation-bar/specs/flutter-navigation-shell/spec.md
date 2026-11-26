@@ -19,7 +19,9 @@ overlay). Making the transparency visible SHALL require all three of:
    behind the bar;
 3. the body's bottom inset equals the bar's PAINTED height — the bar's own
    height plus the system bottom inset its internal `SafeArea` adds — so no
-   list row of any destination hides under the bar.
+   list row of any destination hides under the bar. A scrollable that states a
+   `padding` of its own SHALL extend that padding by the same inset (Flutter
+   folds the ambient inset in only when the padding is null), counted once.
 
 The bar's background MAY be a plane lifted slightly off the plain surface role,
 derived per brightness from the scheme (never a fixed grey), and a
@@ -65,8 +67,14 @@ traversal, the per-destination keys, the 48 dp touch targets) SHALL NOT change.
 
 #### Scenario: Label and icon contrast survive the worst-case backdrop
 
-- **WHEN** the bar is composited over the worst-case blurred backdrop (white in
-  the light theme, black in the dark theme).
-- **THEN** label text reaches at least 4.5:1 contrast and icons / the indicator
-  indication at least 3:1, asserted by a unit test on the derived colors without
-  a shader-dependent golden.
+- **WHEN** the bar is composited over each backdrop extreme — pure white AND
+  pure black — in BOTH themes (a dark backdrop darkens the light theme's bar, a
+  light one lightens the dark theme's, so the extreme that flatters one theme is
+  the other theme's worst case).
+- **THEN** the MINIMUM over those backdrops reaches at least 4.5:1 for label
+  text and at least 3:1 for icons, and the selected icon reaches at least 3:1
+  against the opaque indicator pill, asserted by a unit test on the derived
+  colors without a shader-dependent golden. The pill's own edge against the bar
+  is DECORATIVE and is not held to 3:1 (no M3 container role sits that far from
+  its own surface family); the test asserts instead that the pill stays opaque
+  and distinct, so the selection is carried by the measured icon/label colors.

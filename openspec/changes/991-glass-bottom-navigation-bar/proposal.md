@@ -36,7 +36,7 @@ implementation:
 
 - **Tokens** (`design/tokens/component.json`): a new
   `component.navigationBar` group with the four decisions no primitive owns —
-  `height` (80 dp), `tintAlpha` (0.72), `planeLiftAlpha` (0.06) and
+  `height` (80 dp), `tintAlpha` (0.80), `planeLiftAlpha` (0.06) and
   `blurSigma` (12 px). The tint *color* is not a token: it is derived per
   brightness from `scheme.surface` + `scheme.surfaceTint`, because a fixed grey
   would read as a hole in dark mode.
@@ -93,12 +93,20 @@ plus action, and now has no extent because the reservation lives in the inset.
 
 ### D3 — The tint carries the contrast budget, the blur only the effect
 
-Pure blur over costume/continuity photography destroys label and indicator
-contrast. `tintAlpha 0.72` leaves 28 % of the backdrop visible (that is what
-makes the bar read as glass) while keeping M3's label colors ≥ 4.5:1 and the
-icons/indicator ≥ 3:1 against the **worst-case** blurred backdrop (white in
-light mode, black in dark). `test/design/navigation_bar_metrics_test.dart`
-measures exactly that; a future token change that breaks it fails a test.
+Pure blur over costume/continuity photography destroys label contrast.
+`tintAlpha 0.80` leaves 20 % of the backdrop visible (that is what makes the
+bar read as glass) while keeping M3's label colors ≥ 4.5:1 and the icons
+≥ 3:1 against the **worst-case** blurred backdrop. "Worst case" is BOTH
+extremes in BOTH themes: a dark backdrop darkens the light theme's bar (its dark
+labels lose contrast) and a light one lightens the dark theme's, so the extreme
+that favours one theme is the other's failure mode — the test takes the
+minimum. The original 0.72 measured 4.12:1 (light) / 3.86:1 (dark) once the
+test stopped picking the flattering backdrop, which is why the token moved to
+0.80 (5.08:1 / 5.11:1). The indicator pill is the one pair NOT held to 3:1
+against the bar: it is decorative, and the selection is carried by the icon and
+label colors the test measures.
+`test/design/navigation_bar_metrics_test.dart` measures exactly that; a future
+token change that breaks it fails a test.
 
 ### D4 — Two states, one color decision
 

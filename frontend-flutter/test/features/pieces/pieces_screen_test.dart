@@ -384,7 +384,9 @@ void main() {
       await setupContainer(initialRows: [_piece('c-1')]);
       await pumpScreen(tester);
       await tester.tap(find.byKey(const Key('piece-tile-c-1')));
-      await tester.pump();
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
       expect(find.byKey(const Key('piece-editor-c-1')), findsOneWidget);
       expect(find.byKey(const Key('piece-detail-add-c-1')), findsOneWidget);
       expect(find.byType(Scaffold), findsOneWidget);
@@ -938,6 +940,82 @@ void main() {
           isEmpty,
         );
       });
+    });
+  });
+
+  // Issue #991 review (CodeRabbit): a `CustomScrollView` never folds the
+  // ambient `MediaQuery` bottom padding into its slivers, so the shell's
+  // glass-bar reservation has to be consumed as trailing content. These are
+  // the end-of-scroll assertions: at the very end of the list the last thing
+  // the user can reach comes to rest ABOVE the bar, not behind it.
+  group('PiecesScreen bottom inset (issue #991 review)', () {
+    /// Jumps the Cast overview to the end of its scroll extent and returns the
+    /// logical screen height the shell would have laid out at.
+    Future<double> scrollToEnd(WidgetTester tester) async {
+      // `.first`: the editor's text fields bring their own `Scrollable`s, so
+      // the OUTER one (the overview's viewport) is the one to drive.
+      final ScrollableState scrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const Key('pieces-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      // Twice: the editor's own slivers can settle (and the extent grow) one
+      // frame after the jump, so the loop drives the position to the FINAL
+      // extent deterministically instead of trusting a single frame.
+      for (var i = 0; i < 2; i++) {
+        scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+        await tester.pump();
+      }
+      expect(
+        scrollable.position.pixels,
+        scrollable.position.maxScrollExtent,
+        reason: 'the assertion below is only meaningful at end of scroll',
+      );
+      return tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    }
+
+    testWidgets('the last tile clears the bar at end of scroll', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [for (var i = 0; i < 12; i++) _piece('c-$i')],
+      );
+      // 96 dp: the shell hands the body the glass bar's laid-out height
+      // (80 dp plus a gesture-nav inset) as `MediaQuery.padding.bottom`.
+      tester.view.padding = const FakeViewPadding(bottom: 96);
+      await pumpScreen(tester);
+
+      final double screenHeight = await scrollToEnd(tester);
+      final Rect lastTile = tester.getRect(
+        find.byKey(const Key('piece-tile-c-11')),
+      );
+      expect(
+        lastTile.bottom,
+        lessThanOrEqualTo(screenHeight - 96),
+        reason: 'the final grid row must not rest behind the glass bar',
+      );
+    });
+
+    testWidgets('the piece editor clears the bar at end of scroll', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_piece('c-1')]);
+      tester.view.padding = const FakeViewPadding(bottom: 96);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
+      await tester.pump();
+
+      // The inset is consumed AFTER all content, the editor included — the
+      // editor is the last sliver, so its bottom is what would hide.
+      final double screenHeight = await scrollToEnd(tester);
+      expect(
+        tester.getRect(find.byKey(const Key('piece-editor-c-1'))).bottom,
+        lessThanOrEqualTo(screenHeight - 96),
+        reason: 'the editor last control must not rest behind the bar',
+      );
     });
   });
 }

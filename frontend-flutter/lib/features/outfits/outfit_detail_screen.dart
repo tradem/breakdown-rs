@@ -17,6 +17,7 @@ import '../../core/problem_error.dart';
 import '../../core/result.dart';
 import '../../data/photo_repository.dart';
 import '../../design/material_icons.dart';
+import '../../design/scroll_insets.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../photos/capture.dart';
 import '../photos/prepare.dart';
@@ -134,7 +135,7 @@ class _OutfitDetailScreenState extends ConsumerState<OutfitDetailScreen> {
           child: ListView(
             key: Key('outfit-detail-${widget.outfitId}'),
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
+            padding: withBottomInset(context, const EdgeInsets.all(16)),
             children: [
               if (denied)
                 Text(

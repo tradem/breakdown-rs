@@ -19,9 +19,9 @@ Dart artifact as a `double`, and SHALL leave the value's range to the token's
 #### Scenario: An alpha token reaches the Flutter artifact
 
 - **WHEN** `component.navigationBar.tintAlpha` is a `number` token with the
-  value `0.72` and the build script runs.
+  value `0.80` and the build script runs.
 - **THEN** the regenerated artifact carries
-  `static const double componentNavigationBarTintAlpha = 0.72;` and no Dart call
+  `static const double componentNavigationBarTintAlpha = 0.8;` and no Dart call
   site re-derives an alpha literal.
 
 #### Scenario: A malformed number token fails the build

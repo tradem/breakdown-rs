@@ -88,7 +88,7 @@ owns, and each is read by exactly one consumer
 | Token | States | Read as |
 |---|---|---|
 | `height` (80 dp) | Material's navigation-bar height. It is a token because the theme writes it into `NavigationBarThemeData.height` **and** it is the bar's share of the content's bottom inset — the two must never drift | `NavigationBarMetrics.height` |
-| `tintAlpha` (0.72) | How much of the blurred backdrop stays visible. Carries the WCAG contrast budget (labels ≥ 4.5:1 over the worst-case blurred photograph) | `NavigationBarMetrics.tintAlpha` |
+| `tintAlpha` (0.80) | How much of the blurred backdrop stays visible. Carries the WCAG contrast budget (labels ≥ 4.5:1 over the worst-case blurred photograph — both backdrop extremes, pure white and pure black, in both themes) | `NavigationBarMetrics.tintAlpha` |
 | `planeLiftAlpha` (0.06) | How far the bar's plane lifts off the plain surface toward the scheme's `surfaceTint`, so the glass reads as its own plane | `NavigationBarMetrics.planeLiftAlpha` |
 | `blurSigma` (12 px) | The `BackdropFilter` radius; capped at 16 by the issue's GPU-cost decision, with transparent-without-blur as the documented fallback | `NavigationBarMetrics.blurSigma` |
 

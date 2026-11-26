@@ -15,6 +15,7 @@ import 'reports_aggregate_controller.dart';
 import 'reports_aggregate_state.dart';
 import 'reports_state.dart';
 import '../../design/components/breakdown_app_bar.dart';
+import '../../design/scroll_insets.dart';
 
 /// `ReportsAggregateScreen` — the season- or episode-scoped aggregated
 /// Soll-Ist report (issue #571, Flutter half).
@@ -72,7 +73,7 @@ class ReportsAggregateScreen extends ConsumerWidget {
               child: ListView(
                 key: const Key('soll-ist-aggregate-screen'),
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
+                padding: withBottomInset(context, const EdgeInsets.all(16)),
                 children: [
                   _AggregateSection(state: state, onRetry: controller.refresh),
                   const SizedBox(height: 24),

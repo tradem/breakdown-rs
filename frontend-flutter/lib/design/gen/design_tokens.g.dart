@@ -31,7 +31,7 @@ abstract final class DesignTokens {
   static const double componentNavigationBarBlurSigma = 12.0;
   static const double componentNavigationBarHeight = 80.0;
   static const double componentNavigationBarPlaneLiftAlpha = 0.06;
-  static const double componentNavigationBarTintAlpha = 0.72;
+  static const double componentNavigationBarTintAlpha = 0.8;
   static const double elevationLevel0 = 0.0;
   static const double elevationLevel1 = 1.0;
   static const double elevationLevel2 = 3.0;

@@ -90,10 +90,15 @@ abstract final class AppThemes {
   /// The indicator pill and the label/icon colors are deliberately NOT set: the
   /// M3 defaults (`secondaryContainer` / `onSurface` / `onSurfaceVariant` /
   /// `onSecondaryContainer`) are already opaque and already carry their own
-  /// contrast contract against the tint, which
-  /// `test/design/navigation_bar_metrics_test.dart` measures at the
-  /// worst-case blurred backdrop. Only the bar *background* becomes
-  /// translucent.
+  /// contrast contract, which `test/design/navigation_bar_metrics_test.dart`
+  /// measures WITHOUT a shader-dependent golden: the label/icon roles against
+  /// the painted bar over BOTH backdrop extremes (pure white and pure black, in
+  /// both themes — the extreme that helps one theme is the worst case for the
+  /// other), the selected icon against the opaque pill, and the pill's
+  /// opacity/distinctness. The pill's own edge against the bar is DECORATIVE and
+  /// deliberately not held to 3:1 (no M3 container role is that far from its own
+  /// surface family); the selection is carried by the icon and label colors,
+  /// which are measured. Only the bar *background* becomes translucent.
   static NavigationBarThemeData _navigationBarTheme(ColorScheme scheme) =>
       NavigationBarThemeData(
         // Token-derived, and the same value `Scaffold(extendBody: true)` uses

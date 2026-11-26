@@ -2953,4 +2953,49 @@ void main() {
       expect(days.updateCalls, 1);
     });
   });
+
+  // Issue #991 review (CodeRabbit): the body passes its OWN
+  // `EdgeInsets.all(16)`, which opts the list out of Flutter's automatic
+  // `MediaQuery` inset consumption — so the shell's glass-bar reservation is
+  // added explicitly (`withBottomInset`). End-of-scroll assertion: the last
+  // section comes to rest above the bar instead of behind it.
+  group('SceneDetailScreen bottom inset (issue #991 review)', () {
+    testWidgets('the last section clears the bar at end of scroll', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene(characters: ['ch-1']));
+      // 96 dp: the shell hands the body the glass bar's laid-out height (80 dp
+      // plus a gesture-nav inset) as `MediaQuery.padding.bottom`.
+      tester.view.padding = const FakeViewPadding(bottom: 96);
+      await pumpDetail(tester);
+
+      final ScrollableState scrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const Key('scene-detail-scene-1')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      // A section below the fold builds only when scrolled into view, so the
+      // extent grows frame by frame — drive it to the FINAL extent.
+      for (var i = 0; i < 4; i++) {
+        scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+        await tester.pump();
+      }
+      expect(
+        scrollable.position.pixels,
+        scrollable.position.maxScrollExtent,
+        reason: 'the assertion below is only meaningful at end of scroll',
+      );
+
+      final double screenHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      expect(
+        tester.getRect(find.byKey(const Key('scene-cast-scene-1'))).bottom,
+        lessThanOrEqualTo(screenHeight - 96),
+        reason: 'the last section must not rest behind the glass bar',
+      );
+    });
+  });
 }

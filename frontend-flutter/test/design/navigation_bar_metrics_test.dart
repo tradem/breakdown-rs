@@ -29,20 +29,32 @@ double _contrast(Color foreground, Color background) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/// The worst-case backdrop the glass bar can be composited over: content is
-/// photography, so pure white (light scheme) and pure black (dark scheme) are
-/// the extremes the contrast budget must survive.
-Color _worstCaseBackdrop(Brightness brightness) =>
-    brightness == Brightness.light
-    ? const Color(0xFFFFFFFF)
-    : const Color(0xFF000000);
+/// The two backdrop extremes the glass bar can be composited over: content is
+/// photography, so pure white and pure black are the ends the contrast budget
+/// must survive — in BOTH themes.
+///
+/// The theme never picks the worse of the two: a dark backdrop DARKENS the light
+/// theme's bar (reducing contrast for its dark labels) and a light one LIGHTENS
+/// the dark theme's (reducing it for its light labels), so the extreme that helps
+/// one theme is the worst case for the other. Every ratio below is therefore the
+/// MINIMUM over both backdrops, never the one that matches the theme's
+/// brightness.
+const List<Color> _backdropExtremes = <Color>[
+  Color(0xFFFFFFFF),
+  Color(0xFF000000),
+];
 
-/// The bar surface the user actually sees over that worst case: the tint
-/// composited over the blurred (worst-case) content.
-Color _paintedBar(ColorScheme scheme) => Color.alphaBlend(
-  NavigationBarMetrics.tint(scheme),
-  _worstCaseBackdrop(scheme.brightness),
-);
+/// The bar surface the user actually sees over [backdrop]: the tint composited
+/// over the blurred content.
+Color _paintedBar(ColorScheme scheme, Color backdrop) =>
+    Color.alphaBlend(NavigationBarMetrics.tint(scheme), backdrop);
+
+/// The worst (lowest) contrast [foreground] reaches over the painted bar, across
+/// every backdrop extreme.
+double _minContrastOverBackdrops(Color foreground, ColorScheme scheme) =>
+    _backdropExtremes
+        .map((backdrop) => _contrast(foreground, _paintedBar(scheme, backdrop)))
+        .reduce(math.min);
 
 /// The compact bottom bar's glass surface (issue #991).
 ///
@@ -119,31 +131,59 @@ void main() {
         expect(NavigationBarMetrics.blurSigma, lessThanOrEqualTo(16));
       });
 
-      test('labels keep >= 4.5:1 over the worst-case blurred backdrop', () {
-        final Color painted = _paintedBar(scheme);
+      test('labels keep >= 4.5:1 over every backdrop extreme', () {
         // NavigationBar's M3 label colors: onSurface when selected,
         // onSurfaceVariant otherwise.
-        expect(_contrast(scheme.onSurface, painted), greaterThanOrEqualTo(4.5));
         expect(
-          _contrast(scheme.onSurfaceVariant, painted),
+          _minContrastOverBackdrops(scheme.onSurface, scheme),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          _minContrastOverBackdrops(scheme.onSurfaceVariant, scheme),
           greaterThanOrEqualTo(4.5),
         );
       });
 
-      test('icons and the indicator keep >= 3:1', () {
-        final Color painted = _paintedBar(scheme);
-        // Unselected icon: onSurfaceVariant over the bar surface.
+      test('icons keep >= 3:1 over every backdrop extreme', () {
+        // Unselected icon: onSurfaceVariant over the bar surface, at whatever
+        // content happens to be blurred behind it.
         expect(
-          _contrast(scheme.onSurfaceVariant, painted),
+          _minContrastOverBackdrops(scheme.onSurfaceVariant, scheme),
           greaterThanOrEqualTo(3.0),
         );
+      });
+
+      test('the selected icon keeps >= 3:1 on the opaque indicator pill', () {
         // Selected icon sits on the OPAQUE indicator pill
-        // (secondaryContainer / onSecondaryContainer) — unaffected by the
-        // glass, but asserted so the pill is proved to stay opaque.
+        // (secondaryContainer / onSecondaryContainer) — a pair the glass never
+        // touches, asserted so the pill is proved to stay opaque.
         expect(
           _contrast(scheme.onSecondaryContainer, scheme.secondaryContainer),
           greaterThanOrEqualTo(3.0),
         );
+      });
+
+      test('the indicator pill is a DECORATIVE boundary, not a 3:1 edge', () {
+        // The pill is the M3 default `secondaryContainer`, and no scheme role
+        // puts that container 3:1 away from its own surface family — measured
+        // here at ~1.2:1 (light) / ~1.4–1.9:1 (dark) against the painted bar.
+        // It is therefore NOT the boundary that carries the selection: the
+        // state is carried twice over by the selected icon color (>= 3:1 on the
+        // pill, above) and the selected label color (>= 4.5:1 over every
+        // backdrop, above), exactly as M3 intends. The spec states this budget
+        // as such; what this test pins is that the pill stays OPAQUE and
+        // DISTINCT from the bar, so it keeps reading as a pill and never turns
+        // into a second translucent layer.
+        for (final backdrop in _backdropExtremes) {
+          final Color painted = _paintedBar(scheme, backdrop);
+          expect(scheme.secondaryContainer.a, 1.0);
+          expect(scheme.secondaryContainer, isNot(painted));
+          expect(
+            _contrast(scheme.secondaryContainer, painted),
+            greaterThan(1.0),
+            reason: 'the pill must stay visible as a shape over $backdrop',
+          );
+        }
       });
     });
   }
