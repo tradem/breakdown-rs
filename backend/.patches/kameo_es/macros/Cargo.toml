@@ -7,7 +7,6 @@ rust-version = "1.99"
 authors = ["Ari Seyhun <dev@tqwewe.com>"]
 license = "MIT OR Apache-2.0"
 description = "Derive macros for kameo_es event sourcing library"
-homepage = "https://github.com/sierra-db/kameo_es"
 repository = "https://github.com/sierra-db/kameo_es"
 keywords = ["event-sourcing", "cqrs", "macros", "derive"]
 categories = ["development-tools::procedural-macro-helpers"]
@@ -19,3 +18,10 @@ proc-macro = true
 proc-macro2 = "1.0.89"
 quote = "1.0.37"
 syn = { version = "2.0.82", features = ["extra-traits", "full"] }
+
+# Vendored upstream crate (kameo_es 0.2.0, patched by this repo). It deliberately
+# does NOT inherit `[workspace.lints]`: its own `unwrap()`/`expect()` usage would
+# fail the workspace's deny list. Declaring the (empty) table records that intent,
+# so cargo's `missing_lints_inheritance` note stays silent instead of repeating on
+# every fresh build.
+[lints.clippy]
