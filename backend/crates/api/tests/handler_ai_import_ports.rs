@@ -6514,37 +6514,139 @@ async fn ai_config_persists_and_returns_the_vision_slot() {
     }
 }
 
-/// Issue #1013 (review finding): a VISION credential replacement must name
-/// its vision provider. The aggregate resolves an omitted provider from its
-/// own state, so without this guard a client that sends ONLY a new
-/// `vision_vault_key_id` against a lagging projection (no vision slot in the
-/// read model yet) would pass the edge unchecked — the aggregate would pair
-/// the key with its stored provider and persist a credential reference the
-/// page-image path may later use (confused deputy, #552 shape).
+/// Issue #1013 (review finding round 2): a credential-slot PATCH must carry
+/// BOTH halves of the pair — provider and key. The aggregate resolves an
+/// omitted half from its OWN state, while the edge can only read the
+/// projection, so a half-supplied pair is completed from a source the edge
+/// cannot see. A populated-but-stale projection does not rescue that: it makes
+/// the edge validate the WRONG half (projection `(EURouter, key-a)` against an
+/// aggregate that stores `(Ovhcloud, key-b)` under key-a).
 #[tokio::test]
-async fn update_ai_config_rejects_a_vision_key_replacement_without_its_provider() {
+async fn update_ai_config_rejects_a_half_supplied_vision_credential() {
+    // (label, projected provider, projected key, request body)
+    let cases: [(&str, Option<LlmProvider>, Option<&str>, serde_json::Value); 3] = [
+        (
+            "empty projection, key only",
+            None,
+            None,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_vault_key_id": "fresh-vision-key",
+                "version": 1
+            }),
+        ),
+        (
+            "POPULATED stale projection, key only",
+            Some(LlmProvider::EURouter),
+            Some("projected-vision-key"),
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                // Equals the PROJECTED key, so a projection-relative
+                // "is it a replacement?" test would let it through while the
+                // aggregate pairs it with its own stored provider.
+                "vision_vault_key_id": "projected-vision-key",
+                "version": 1
+            }),
+        ),
+        (
+            "provider only",
+            None,
+            None,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_provider": "ovhcloud",
+                "version": 1
+            }),
+        ),
+    ];
+
+    for (label, projected_provider, projected_key, raw) in cases {
+        let ports = FakePorts::default();
+        ports
+            .membership_repo
+            .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+            .await;
+        // Every key the guard could object to IS an owned, active OVHcloud
+        // credential: the rejection must come from the incomplete pair, never
+        // from ownership or provider binding.
+        ports
+            .settings_repo
+            .bind_vault_key("fresh-vision-key", LlmProvider::Ovhcloud.as_str(), TEST_SUB)
+            .await;
+        ports
+            .settings_repo
+            .bind_vault_key(
+                "projected-vision-key",
+                LlmProvider::EURouter.as_str(),
+                TEST_SUB,
+            )
+            .await;
+        let commands = ports.ai_config_commands.clone();
+        let repo = ports.ai_config_repo.clone();
+        let state = state(ports);
+
+        let mut view = config_view(TEST_SUB);
+        view.vision_provider = projected_provider;
+        view.vision_model = projected_provider.map(|_| "projected-vision-model".to_owned());
+        view.vision_vault_key_id = projected_key.map(str::to_owned);
+        let id = view.id;
+        repo.views.lock().await.insert(id, view);
+
+        let request: UpdateAiConfigRequest =
+            serde_json::from_value(raw).expect("a half-supplied vision pair deserializes");
+
+        let problem = update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+            .await
+            .expect_err(label)
+            .into_problem();
+
+        assert_eq!(
+            problem.status,
+            StatusCode::UNPROCESSABLE_ENTITY.as_u16(),
+            "{label}"
+        );
+        assert_eq!(problem.code, "ai-config.vision-incomplete", "{label}");
+        assert!(
+            commands.updated.lock().await.is_empty(),
+            "{label}: the command must not be dispatched"
+        );
+    }
+}
+
+/// The Decision slot carries the same rule (its shape predates #1013, the
+/// guard is shared): provider and key arrive together, or not at all.
+#[tokio::test]
+async fn update_ai_config_rejects_a_half_supplied_decision_credential() {
     let ports = FakePorts::default();
     ports
         .membership_repo
         .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
         .await;
-    // The replacement key IS an owned, active OVHcloud credential — the
-    // rejection must come from the missing provider, never from ownership.
     ports
         .settings_repo
-        .bind_vault_key("fresh-vision-key", LlmProvider::Ovhcloud.as_str(), TEST_SUB)
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
         .await;
     let commands = ports.ai_config_commands.clone();
     let repo = ports.ai_config_repo.clone();
     let state = state(ports);
 
-    // The read model lags the aggregate: the stored config already HAS a
-    // vision slot, the projection still shows none (exactly the window the
-    // finding describes).
+    // A populated projection (provider + key) — the stale-read-model shape.
     let mut view = config_view(TEST_SUB);
-    view.vision_provider = None;
-    view.vision_model = None;
-    view.vision_vault_key_id = None;
+    view.decision_provider = Some(LlmProvider::Neuralwatt);
+    view.decision_model = Some("clef-flash".to_owned());
+    view.decision_vault_key_id = Some("vault-key".to_owned());
     let id = view.id;
     repo.views.lock().await.insert(id, view);
 
@@ -6554,25 +6656,19 @@ async fn update_ai_config_rejects_a_vision_key_replacement_without_its_provider(
         "image_model": null,
         "prompts": {},
         "vault_key_id": "vault-key",
-        "vision_vault_key_id": "fresh-vision-key",
+        "decision_vault_key_id": "vault-key",
         "version": 1
     });
     let request: UpdateAiConfigRequest =
-        serde_json::from_value(raw).expect("a vision key without a vision provider deserializes");
-    assert_eq!(request.vision_provider, None, "provider omitted");
-    assert_eq!(
-        request.vision_vault_key_id,
-        Some(Some("fresh-vision-key".to_owned())),
-        "a NEW key is introduced"
-    );
+        serde_json::from_value(raw).expect("a key without a decision provider deserializes");
 
     let problem = update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
         .await
-        .expect_err("a vision key replacement must name its vision provider")
+        .expect_err("a half-supplied decision pair is refused before the dispatch")
         .into_problem();
 
     assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
-    assert_eq!(problem.code, "ai-config.vision-incomplete");
+    assert_eq!(problem.code, "ai-config.decision-incomplete");
     assert!(
         commands.updated.lock().await.is_empty(),
         "the command must not be dispatched"

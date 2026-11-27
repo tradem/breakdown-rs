@@ -8522,30 +8522,27 @@ async fn validate_secondary_vault_key<P: Ports>(
     validate_replacement_vault_key(state, secondary_vault_key_id, secondary_provider, caller).await
 }
 
-/// Fail-closed guard for a credential-SLOT key replacement that does NOT name
-/// the slot's own provider (issue #1013 review finding; the Decision slot has
-/// carried the same shape since #722).
+/// Fail-closed guard for a credential-SLOT PATCH that supplies only ONE half of
+/// the credential pair — the provider or the key, but not both (issue #1013
+/// review; the Decision slot has carried the same shape since #722).
 ///
 /// The aggregate resolves an OMITTED tri-state slot field from its OWN state,
-/// which is the authoritative one. This edge can only resolve it from the
-/// read-model projection — and while the projector lags, `view.<slot>_provider`
-/// is still empty. The "effective" slot then looks incomplete, the
-/// ownership/provider-binding pre-check is SKIPPED, and the command persists a
-/// key that the aggregate pairs with its STORED provider: a foreign credential
-/// reference the worker later fetches (confused deputy, the #552 failure mode).
-/// Requiring the provider alongside a replaced key makes the pre-check
-/// independent of projection freshness — nothing is resolved from the read
-/// model for the field that decides the check.
+/// which is the authoritative one; this edge can only resolve it from the
+/// read-model projection. For a half-supplied pair the two halves can therefore
+/// come from DIFFERENT sources — the supplied key plus the aggregate's stored
+/// provider, or the supplied provider plus the aggregate's stored key — and no
+/// pair formed that way can be checked here for ownership and provider binding.
+/// A *populated but stale* projection does not help either: it would validate
+/// the wrong half against the wrong provider. Supplying the provider and the key
+/// TOGETHER makes the pair fully request-determined, so the pre-check never
+/// depends on projection content at all.
 ///
-/// `Some(None)` (an explicit `null` provider) is deliberately not covered here:
-/// clearing the provider while setting a key is a partially set slot, which the
-/// aggregate already refuses with the slot's `*-incomplete` code.
-fn slot_key_replaced_without_provider(
-    provider_omitted: bool,
-    requested_key: Option<&Option<String>>,
-    stored_key: Option<&str>,
-) -> bool {
-    provider_omitted && matches!(requested_key, Some(Some(key)) if Some(key.as_str()) != stored_key)
+/// `Some(None)` counts as supplied, and that is deliberate: an explicit clear of
+/// ONE half leaves the slot partially set, which the aggregate refuses with the
+/// slot's `*-incomplete` code anyway — the edge just answers it before the
+/// dispatch.
+fn slot_credential_half_supplied(provider_supplied: bool, key_supplied: bool) -> bool {
+    provider_supplied != key_supplied
 }
 
 /// Ownership denial on an AI-config vault key reference (issue #552) →
@@ -8881,16 +8878,15 @@ pub async fn update_ai_config<P: Ports>(
         Some(_) => "own",
         None => "none",
     };
-    // A Decision credential REPLACEMENT must name its provider — the same
-    // fail-closed rule the vision slot below needs (issue #1013 review
-    // finding), applied to the slot that has carried this shape since #722:
-    // with an omitted provider the aggregate would pair the new key with its
-    // STORED provider, while this edge — reading a possibly lagging projection
-    // — would see an incomplete slot and skip the ownership check entirely.
-    if slot_key_replaced_without_provider(
-        request.decision_provider.is_none(),
-        request.decision_vault_key_id.as_ref(),
-        view.decision_vault_key_id.as_deref(),
+    // A Decision credential PATCH must carry BOTH halves of the pair — the
+    // same fail-closed rule the vision slot below needs (issue #1013 review),
+    // applied to the slot that has carried this shape since #722: a half-set
+    // pair is completed from the aggregate's own state, which this edge cannot
+    // see, so no pair could be checked — and a populated but stale projection
+    // would only validate the wrong half.
+    if slot_credential_half_supplied(
+        request.decision_provider.is_some(),
+        request.decision_vault_key_id.is_some(),
     ) {
         return Err(ApiError::from(DomainError::from(
             AiConfigError::DecisionProviderRequired,
@@ -8931,16 +8927,15 @@ pub async fn update_ai_config<P: Ports>(
         .vision_model
         .clone()
         .unwrap_or_else(|| view.vision_model.clone());
-    // A Vision credential REPLACEMENT must name its vision provider (issue
-    // #1013 review finding): with an omitted provider the aggregate would pair
-    // the new key with its STORED provider, while this edge — reading a
-    // possibly lagging projection — would see an incomplete slot and skip the
-    // ownership check entirely, persisting a foreign credential reference that
-    // the page-image path may later use.
-    if slot_key_replaced_without_provider(
-        request.vision_provider.is_none(),
-        request.vision_vault_key_id.as_ref(),
-        view.vision_vault_key_id.as_deref(),
+    // A Vision credential PATCH must carry BOTH halves of the pair (issue
+    // #1013 review): a half-set pair is completed from the aggregate's own
+    // state, so the edge cannot form — let alone verify — the pair that will be
+    // stored, and a populated but stale projection only makes it verify the
+    // WRONG half (projection `(EURouter, key-A)` + aggregate `(Ovhcloud,
+    // key-B)` + a key-A-only PATCH would store key-A with Ovhcloud).
+    if slot_credential_half_supplied(
+        request.vision_provider.is_some(),
+        request.vision_vault_key_id.is_some(),
     ) {
         return Err(ApiError::from(DomainError::from(
             AiConfigError::VisionProviderRequired,
