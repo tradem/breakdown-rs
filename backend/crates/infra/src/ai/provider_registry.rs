@@ -133,12 +133,29 @@ pub fn resolve_provider(value: &str) -> Option<LlmProvider> {
 /// exactly the config a new deployment creates. `mistral-large-4` declares it
 /// and is the recommendation since; `mistral-large-3` stays in
 /// `default_allowlist`.
+///
+/// Issue #1007 re-checked every list on **2026-11-26 (UTC)** against
+/// `https://openrouter.ai/api/v1/models` (+ `?output_modalities=decisions`),
+/// `https://api.eurouter.ai/api/v1/models` (+ the same decision filter),
+/// `https://api.neuralwatt.com/v1/models`, `https://opencode.ai/zen/go/v1/models`,
+/// `https://opencode.ai/zen/v1/models`,
+/// `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/models`,
+/// `https://models.dev/api.json` (OpenAI/Gemini/Scaleway/Nebius cross-check) and
+/// `https://ollama.com/library/qwen3.5`. `opencode` and `opencode-go` keep
+/// SEPARATE arms because their live catalogues differ: the Go gateway no longer
+/// lists `minimax-m2.7` while it is the only one of the two that still offers
+/// `mimo-v2.6-pro`. OpenAI/Gemini/Scaleway/Nebius answer `401`/`403` anonymously,
+/// so their entries come from the official model docs plus models.dev.
+/// ADR-041 `D2` is untouched: Scaleway/OVHcloud/Nebius and every egress policy
+/// are unchanged.
+///
 /// Single source for the models endpoint; a new `LlmProvider` variant must
 /// be added here and to the exhaustive `as_str` match in core.
 pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
     match provider {
-        LlmProvider::OpenAI => &["gpt-5.6-luna", "gpt-5.6-terra", "gpt-4.1-mini"],
+        LlmProvider::OpenAI => &["gpt-6-luna", "gpt-6.1-terra", "gpt-5.6-luna"],
         LlmProvider::Gemini => &[
+            "gemini-3.8-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-pro-preview",
@@ -146,6 +163,7 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
             "gemini-2.5-pro",
         ],
         LlmProvider::OpenRouter => &[
+            "openai/gpt-6-luna",
             "openai/gpt-5-mini",
             "deepseek/deepseek-v4-flash",
             "deepseek/deepseek-v4.1-flash",
@@ -154,7 +172,11 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
         LlmProvider::EURouter => &[
             "mistral-large-4",
             "mistral-small-4",
-            "deepseek-v4-flash",
+            // The structured-output-capable successor of the `deepseek-v4-flash`
+            // the live catalogue no longer lists — deliberately not the older
+            // `deepseek-v4-flash-0731` nor the namespaced
+            // `deepseek/deepseek-v4.1-flash`.
+            "deepseek-v4.1-flash-1017",
             "deepseek-v4-pro",
             "mistral-medium-3.5",
         ],
@@ -180,35 +202,53 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
         // `.github/instructions/ai-import.instructions.md`). The Qwen family is
         // Apache-2.0; the DeepSeek release is MIT.
         LlmProvider::Nebius => &["Qwen/Qwen3.8-27B", "deepseek-ai/DeepSeek-V4.1-Flash-1017"],
+        // `deepseek-v4-flash`, `glm-5.3-fast`, `glm-5.3-short`, `kimi-k3`,
+        // `kimi-k3-fast` and `kimi-k3-flex` left the live catalogue on
+        // 2026-11-26 and are replaced by the six flex/successor ids below.
+        // `nw-*`, `mammoth-1`, `gemma-4-31b`, `mimo-*` and
+        // `deepseek-v4.1-flash-speed` are deliberately NOT curated (issue #1007).
         LlmProvider::Neuralwatt => &[
             "deepseek-v4.1-flash",
-            "deepseek-v4-flash",
+            "deepseek-v4.1-flash-flex",
             "glm-5.3",
-            "glm-5.3-fast",
             "glm-5.3-flex",
             "glm-5.3-flash",
-            "glm-5.3-short",
-            "kimi-k3",
-            "kimi-k3-fast",
-            "kimi-k3-flex",
+            "glm-5.3-flash-flex",
+            "kimi-k3.1-pro",
+            "kimi-k3.1-pro-flex",
             "qwen3.6-35b",
             "qwen3.6-35b-fast",
+            "qwen3.6-35b-flex",
             "qwen-3.8-27b",
+            "qwen-3.8-27b-flex",
         ],
-        LlmProvider::OpenCodeGo | LlmProvider::OpenCode => &[
+        // Separate arms on purpose (issue #1007): the two catalogues differ. The
+        // Go gateway no longer lists `minimax-m2.7`; `mimo-v2.6-pro` is Go-only.
+        LlmProvider::OpenCodeGo => &[
+            "deepseek-v4.1-flash",
             "deepseek-v4-pro",
-            "deepseek-v4-flash",
-            "glm-5.2",
             "glm-5.3",
+            "glm-5.3-flash",
+            "kimi-k3.1-pro",
+            "kimi-k3",
+            "kimi-k2.7-code",
+            "minimax-m3",
+            "mimo-v2.6-pro",
+            "grok-4.7",
+        ],
+        LlmProvider::OpenCode => &[
+            "deepseek-v4.1-flash",
+            "deepseek-v4-pro",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "kimi-k3.1-pro",
             "kimi-k3",
             "kimi-k2.7-code",
             "minimax-m3",
             "minimax-m2.7",
-            "mimo-v2.6-pro",
-            "grok-4.5",
-            "grok-4.6",
+            "grok-4.7",
         ],
-        LlmProvider::Ollama => &["qwen3:8b", "llama3.2", "qwen2.5-coder:7b"],
+        LlmProvider::Ollama => &["qwen3.5:9b", "qwen3:8b", "llama3.2", "qwen2.5-coder:7b"],
         // LlmProvider is #[non_exhaustive]; future variants get an empty
         // list so the registry stays backward-compatible without a catch-all.
         _ => &[],
@@ -564,9 +604,21 @@ mod tests {
                 .iter()
                 .map(|m| m.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["clef-flash", "metis"]
+            vec!["clef-flash", "clef", "metis"]
         );
-        assert!(!curated_decision_models(LlmProvider::OpenRouter).is_empty());
+        assert_eq!(
+            curated_decision_models(LlmProvider::OpenRouter)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "cloudflare/clef-flash",
+                "cloudflare/clef",
+                "typesafe/jev-1.14",
+                "perplexity/pplx-decider-flash-v1.2",
+                "liquid/d1.2",
+            ]
+        );
         // Non-decision providers expose no decision models at all.
         assert!(curated_decision_models(LlmProvider::OpenAI).is_empty());
         assert!(curated_decision_models(LlmProvider::Ollama).is_empty());
@@ -574,6 +626,122 @@ mod tests {
         for model in curated_decision_models(LlmProvider::OpenRouter) {
             assert!(!model.recommended);
         }
+    }
+
+    /// Issue #1007: the assistant catalogues are a reviewed artifact, so the
+    /// exact ids AND their order are pinned here. `opencode` and `opencode-go`
+    /// are asserted separately because their live catalogues differ — sharing one
+    /// arm forced an incorrect common subset (`mimo-v2.6-pro` exists only on the
+    /// Go gateway, `minimax-m2.7` only on OpenCode).
+    #[test]
+    fn curated_model_ids_match_the_binding_catalog() {
+        assert_eq!(
+            curated_model_ids(LlmProvider::OpenAI),
+            &["gpt-6-luna", "gpt-6.1-terra", "gpt-5.6-luna"]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::Gemini),
+            &[
+                "gemini-3.8-flash",
+                "gemini-3.6-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-pro-preview",
+                "gemini-2.5-flash",
+                "gemini-2.5-pro",
+            ]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::OpenRouter),
+            &[
+                "openai/gpt-6-luna",
+                "openai/gpt-5-mini",
+                "deepseek/deepseek-v4-flash",
+                "deepseek/deepseek-v4.1-flash",
+                "nvidia/nemotron-3.5-lightning:free",
+            ]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::EURouter),
+            &[
+                "mistral-large-4",
+                "mistral-small-4",
+                "deepseek-v4.1-flash-1017",
+                "deepseek-v4-pro",
+                "mistral-medium-3.5",
+            ]
+        );
+        // ADR-041 `D2` vision fallbacks — unchanged by #1007.
+        assert_eq!(
+            curated_model_ids(LlmProvider::Scaleway),
+            &["qwen3.5-397b-a17b", "mistral-small-3.2-24b-instruct-2506"]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::Ovhcloud),
+            &["qwen3-vl-30b-a3b", "Mistral-Small-3.2-24B-Instruct-2506"]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::Nebius),
+            &["Qwen/Qwen3.8-27B", "deepseek-ai/DeepSeek-V4.1-Flash-1017"]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::Neuralwatt),
+            &[
+                "deepseek-v4.1-flash",
+                "deepseek-v4.1-flash-flex",
+                "glm-5.3",
+                "glm-5.3-flex",
+                "glm-5.3-flash",
+                "glm-5.3-flash-flex",
+                "kimi-k3.1-pro",
+                "kimi-k3.1-pro-flex",
+                "qwen3.6-35b",
+                "qwen3.6-35b-fast",
+                "qwen3.6-35b-flex",
+                "qwen-3.8-27b",
+                "qwen-3.8-27b-flex",
+            ]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::OpenCodeGo),
+            &[
+                "deepseek-v4.1-flash",
+                "deepseek-v4-pro",
+                "glm-5.3",
+                "glm-5.3-flash",
+                "kimi-k3.1-pro",
+                "kimi-k3",
+                "kimi-k2.7-code",
+                "minimax-m3",
+                "mimo-v2.6-pro",
+                "grok-4.7",
+            ]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::OpenCode),
+            &[
+                "deepseek-v4.1-flash",
+                "deepseek-v4-pro",
+                "glm-5.3",
+                "glm-5.3-flash",
+                "kimi-k3.1-pro",
+                "kimi-k3",
+                "kimi-k2.7-code",
+                "minimax-m3",
+                "minimax-m2.7",
+                "grok-4.7",
+            ]
+        );
+        assert_eq!(
+            curated_model_ids(LlmProvider::Ollama),
+            &["qwen3.5:9b", "qwen3:8b", "llama3.2", "qwen2.5-coder:7b"]
+        );
+
+        // The two OpenCode arms must stay distinct — a future refactor back to
+        // one shared arm is the regression this guards.
+        assert_ne!(
+            curated_model_ids(LlmProvider::OpenCodeGo),
+            curated_model_ids(LlmProvider::OpenCode)
+        );
     }
 
     #[test]

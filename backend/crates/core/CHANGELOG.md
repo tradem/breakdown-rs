@@ -19,6 +19,26 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.80.0] - Unreleased
+### Changed (issue #1007)
+
+- `ai::decision::curated_decision_model_ids` refreshed against the 2026-11-26
+  catalogues: EURouter now lists `clef` (`clef-flash`, `clef`, `metis`) and
+  OpenRouter's `liquid/d1` rotated to `liquid/d1.2` (same $0.02/1M input, zero
+  output tokens). `liquid/d1` keeps its `curated_seed` pricing row, so a
+  persisted config naming it still resolves — only NEW writes validate against
+  the curated list, the worker accepts any non-empty model of a
+  decision-capable provider. `perplexity/pplx-decider-flash-v1.2` stays (v1.3 is
+  a free variant, not an automatic replacement) and the catalogue is
+  deliberately not expanded to all 45 listed models.
+- `ai::reasoning::supported_reasoning_efforts` follows the same rotation: all
+  thirteen curated Neuralwatt ids declare the four representable efforts,
+  EURouter's `deepseek-v4.1-flash-1017` replaces the rotated-out
+  `deepseek-v4-flash`, OpenRouter gained `openai/gpt-6-luna`, and the OpenCode
+  arms are provider-specific — `kimi-k3` advertises `low|high` on OpenCode but
+  only the unmodelled `max` on OpenCode Go, while `deepseek-v4-pro` offers `high`
+  alone on both (new shared `HIGH_ONLY` slice). A pair whose catalogue declares
+  nothing representable resolves to `None`, never to `Some(&[])`.
+
 ### Added (issue #968)
 
 - `ai::ports::LlmProvider` grew the three EU pay-as-you-go vision endpoints of

@@ -717,14 +717,15 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
     // Simulate a rotation: `clef` no longer curated for Neuralwatt would
     // fail a CHANGED model — but the omitted fields keep it, so the update
     // is accepted. (Assert the negative direction first: the same model on
-    // a fresh create is still checked.)
+    // a fresh create is still checked.) `liquid/d1.2` is the OpenRouter-only
+    // Decision Model of the #1007 catalogue, so EURouter does not curate it.
     assert!(!super::super::decision::is_curated_decision_model(
         LlmProvider::EURouter,
-        "clef"
+        "liquid/d1.2"
     ));
     let rotated_to_eurouter = CreateAiConfig {
         decision_provider: Some(LlmProvider::EURouter),
-        decision_model: Some("clef".into()),
+        decision_model: Some("liquid/d1.2".into()),
         decision_vault_key_id: Some("settings-abc:decision-key".into()),
         reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()

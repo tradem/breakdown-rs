@@ -18,6 +18,28 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.91.0] - Unreleased
+### Changed (issue #1007)
+
+- `ai::provider_registry::curated_model_ids` rotated against the catalogues read
+  on 2026-11-26 (sources in the function's doc comment): OpenAI, Gemini,
+  OpenRouter, EURouter, Neuralwatt and Ollama moved to their successors, and
+  `opencode` / `opencode-go` got SEPARATE arms because their live catalogues
+  differ (`mimo-v2.6-pro` is Go-only, `minimax-m2.7` is OpenCode-only). The
+  registry tests now pin the exact ordered list per provider instead of
+  asserting non-emptiness. `recommended_model` is unchanged (#950: a version
+  number is not quality evidence).
+- `ai::catalog::default_allowlist` gained every newly curated id — plus
+  `deepseek-v4.1-flash`, which was curated but missing, so the catalogue gate
+  refused a model the picker offered. NO rotated-out id was removed: a persisted
+  `AiConfig` and a historical cost snapshot still resolve. Regression gates:
+  `every_curated_model_is_allowlisted` and
+  `rotated_out_ids_stay_in_the_legacy_allowlist`.
+- Migration `20261126000001` seeds the 21 new `curated_seed` pricing rows of the
+  rotation (decision models keep `output_nano_per_million = 0`; Neuralwatt keeps
+  its energy billing). No existing row is deleted or repriced — that stays the
+  live pricing refresh worker's job — and the down migration removes exactly the
+  rows the up migration introduces.
+
 ### Added (issue #968)
 
 - `CuratedProviderUrls::base_url` serves the three EU vision fallbacks of
