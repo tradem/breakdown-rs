@@ -10273,6 +10273,43 @@ async fn flat_text_schedule_keeps_the_assistant_pair_with_a_vision_slot_configur
     );
 }
 
+/// Issue #1013 (review): one shared predicate decides whether a schedule job
+/// sends PAGE IMAGES, and both consumers must agree on it — the worker's
+/// extraction path (which transport carries the pages) and the worker loop
+/// (whether a page transport has to be resolved at all before the worker is
+/// built). A job that does not stream must never make the loop resolve — and
+/// fail on — a vision credential it will not use.
+#[test]
+fn page_image_streaming_has_exactly_one_definition() {
+    use crate::ai::LEGACY_PARSER_FINGERPRINT;
+    use crate::ai::SpatialPdfExtractor;
+    use breakdown_core::ai::DocumentStructureExtractor as _;
+
+    let spatial = SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30));
+    let legacy =
+        super::LegacyPdfToTextAdapter::new(1024 * 1024, std::time::Duration::from_secs(30));
+
+    assert!(
+        super::workers::streams_page_images(SourceFormat::Pdf, spatial.parser_fingerprint()),
+        "a spatial PDF is the ONLY shape that streams page images"
+    );
+    assert!(
+        !super::workers::streams_page_images(SourceFormat::Pdf, legacy.parser_fingerprint()),
+        "the legacy pdftotext rollback target keeps the single flat-text request"
+    );
+    assert_eq!(
+        legacy.parser_fingerprint(),
+        LEGACY_PARSER_FINGERPRINT,
+        "the fixture above must name the legacy parser, not just any second fingerprint"
+    );
+    for format in [SourceFormat::PlainText, SourceFormat::Csv] {
+        assert!(
+            !super::workers::streams_page_images(format, spatial.parser_fingerprint()),
+            "{format:?} never sends a page image"
+        );
+    }
+}
+
 /// Acceptance criterion 5 of issue #1013: the page calls are priced from the
 /// VISION pair's own rate card, and an unpriced vision pair degrades the
 /// snapshot to `unknown` instead of borrowing the assistant pair's price.

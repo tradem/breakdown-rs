@@ -409,6 +409,30 @@ pub struct ScheduleVision {
     pub zdr_attested: bool,
 }
 
+/// Whether ONE schedule job streams PAGE IMAGES through the multimodal vision
+/// seam (issues #960/#1013).
+///
+/// **This is the single source of truth for the question, on purpose.** Two
+/// places must agree on it: [`ScheduleImportWorker::process`], which decides
+/// which transport carries the pages, and the worker loop, which decides
+/// whether a page transport has to be RESOLVED at all before the worker is
+/// built. Two copies of the condition would drift, and the drift is not benign
+/// in either direction: a job that streams but resolved no client would send its
+/// pages to the assistant pair, and a job that does NOT stream but resolves one
+/// fails before `process` on a credential it never uses (issue #1013 review).
+///
+/// A page image is only sent for a PDF that goes through the spatial parser:
+/// native CSV is parsed in-process, plain text is one flat request, and the
+/// legacy `pdftotext` rollback target (`AI_DOCUMENT_PARSER=legacy`, #960) keeps
+/// the pre-#960 single flat-text call.
+pub(crate) fn streams_page_images(
+    source_format: breakdown_core::ai::SourceFormat,
+    parser_fingerprint: &str,
+) -> bool {
+    source_format == breakdown_core::ai::SourceFormat::Pdf
+        && parser_fingerprint != super::LEGACY_PARSER_FINGERPRINT
+}
+
 impl<Q, C, E> ScriptImportWorker<Q, C, E>
 where
     Q: AiImportQueue + 'static,
@@ -1968,10 +1992,11 @@ where
         // Issue #960: a spatial PDF schedule streams PAGE BY PAGE through the
         // multimodal vision seam with carry-over day state; the legacy-pdftotext
         // rollback target (`AI_DOCUMENT_PARSER=legacy`) keeps the pre-#960
-        // single flat-text request.
-        let page_streaming = !native_csv
-            && job.source_format == SourceFormat::Pdf
-            && self.extractor.parser_fingerprint() != super::LEGACY_PARSER_FINGERPRINT;
+        // single flat-text request. The condition lives in
+        // [`streams_page_images`] because the worker loop must ask the SAME
+        // question before it resolves a page transport (issue #1013 review).
+        let page_streaming =
+            streams_page_images(job.source_format, self.extractor.parser_fingerprint());
         // Issue #1013: the extraction requests of THIS attempt are billed to the
         // pair that actually serves them — the vision pair when pages stream and
         // one is configured, otherwise the assistant pair. The breaker consult

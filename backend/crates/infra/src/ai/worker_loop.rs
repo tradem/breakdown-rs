@@ -36,7 +36,7 @@ use super::heartbeat::LeaseHeartbeat;
 use super::heartbeat::claim_lost;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind,
-    ExistingSeasonCharacter, LlmProvider,
+    DocumentStructureExtractor as _, ExistingSeasonCharacter, LlmProvider,
 };
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::error::DomainError;
@@ -961,31 +961,43 @@ async fn schedule_worker_tick(
                 }
             };
             // Issue #1013: resolve the page-image pair before the worker is
-            // built. A build failure is terminal — see
-            // `resolve_schedule_vision`; a job whose pages cannot be sent must
-            // not sit in the retry budget pretending it could succeed.
+            // built — but ONLY for a job that actually streams page images.
+            // `resolve_schedule_vision` builds a client from a separate
+            // credential, and a build failure is terminal for the job; asking
+            // it about a native-CSV, plain-text or legacy-pdftotext job would
+            // fail an import that never sends a page on a credential it never
+            // uses (issue #1013 review). `None` is exactly the pre-#1013 shape
+            // for a job without pages: the assistant pair carries the single
+            // flat request.
             let primary_transport: Arc<dyn LlmClient> = client.clone();
-            let vision = match resolve_schedule_vision(deps, &config, &primary_transport).await {
-                Ok(vision) => vision,
-                Err(error) => {
-                    warn!(
-                        worker_id,
-                        job_id = %job.id.as_uuid(),
-                        %error,
-                        "failed to resolve the vision slot; failing job"
-                    );
-                    deps.queue
-                        .mark_failed(
-                            job.id,
+            let vision = if super::workers::streams_page_images(
+                job.source_format,
+                deps.extractor.parser_fingerprint(),
+            ) {
+                match resolve_schedule_vision(deps, &config, &primary_transport).await {
+                    Ok(vision) => vision,
+                    Err(error) => {
+                        warn!(
                             worker_id,
-                            &error.to_string(),
-                            Some(error.code().code),
-                            error.is_retryable(),
-                            error.retry_after(),
-                        )
-                        .await?;
-                    return Ok(());
+                            job_id = %job.id.as_uuid(),
+                            %error,
+                            "failed to resolve the vision slot; failing job"
+                        );
+                        deps.queue
+                            .mark_failed(
+                                job.id,
+                                worker_id,
+                                &error.to_string(),
+                                Some(error.code().code),
+                                error.is_retryable(),
+                                error.retry_after(),
+                            )
+                            .await?;
+                        return Ok(());
+                    }
                 }
+            } else {
+                None
             };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
@@ -1050,31 +1062,43 @@ async fn schedule_worker_tick(
                 }
             };
             // Issue #1013: resolve the page-image pair before the worker is
-            // built. A build failure is terminal — see
-            // `resolve_schedule_vision`; a job whose pages cannot be sent must
-            // not sit in the retry budget pretending it could succeed.
+            // built — but ONLY for a job that actually streams page images.
+            // `resolve_schedule_vision` builds a client from a separate
+            // credential, and a build failure is terminal for the job; asking
+            // it about a native-CSV, plain-text or legacy-pdftotext job would
+            // fail an import that never sends a page on a credential it never
+            // uses (issue #1013 review). `None` is exactly the pre-#1013 shape
+            // for a job without pages: the assistant pair carries the single
+            // flat request.
             let primary_transport: Arc<dyn LlmClient> = client.clone();
-            let vision = match resolve_schedule_vision(deps, &config, &primary_transport).await {
-                Ok(vision) => vision,
-                Err(error) => {
-                    warn!(
-                        worker_id,
-                        job_id = %job.id.as_uuid(),
-                        %error,
-                        "failed to resolve the vision slot; failing job"
-                    );
-                    deps.queue
-                        .mark_failed(
-                            job.id,
+            let vision = if super::workers::streams_page_images(
+                job.source_format,
+                deps.extractor.parser_fingerprint(),
+            ) {
+                match resolve_schedule_vision(deps, &config, &primary_transport).await {
+                    Ok(vision) => vision,
+                    Err(error) => {
+                        warn!(
                             worker_id,
-                            &error.to_string(),
-                            Some(error.code().code),
-                            error.is_retryable(),
-                            error.retry_after(),
-                        )
-                        .await?;
-                    return Ok(());
+                            job_id = %job.id.as_uuid(),
+                            %error,
+                            "failed to resolve the vision slot; failing job"
+                        );
+                        deps.queue
+                            .mark_failed(
+                                job.id,
+                                worker_id,
+                                &error.to_string(),
+                                Some(error.code().code),
+                                error.is_retryable(),
+                                error.retry_after(),
+                            )
+                            .await?;
+                        return Ok(());
+                    }
                 }
+            } else {
+                None
             };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
