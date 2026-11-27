@@ -35,8 +35,14 @@ generated notes are never used.
 ### Changed
 
 - **AI catalogue rotation (issue #1007).** The curated assistant-LLM and
-  Decision-Model catalogues were re-checked against every provider's live
-  catalogue on **2026-11-26 (UTC)** and rotated: OpenAI gained `gpt-6-luna` and
+  Decision-Model catalogues were re-checked on **2026-11-26 (UTC)** and
+  rotated. Verification is not uniform, and the difference matters for the next
+  refresh: OpenRouter, EURouter, Neuralwatt, `opencode`/`opencode-go` and
+  Ollama answered their live `/models` catalogues anonymously, while OpenAI and
+  Gemini do not (an anonymous first-party `GET /models` answers 401/403), so
+  those ids rest on the official model documentation plus the models.dev feed —
+  an authenticated first-party check of OpenAI and Gemini is still pending.
+  Rotated: OpenAI gained `gpt-6-luna` and
   `gpt-6.1-terra` (rotating `gpt-5.6-terra`/`gpt-4.1-mini` out of
   *new-configuration* curation), Gemini `gemini-3.8-flash`, OpenRouter
   `openai/gpt-6-luna` (Decision: `liquid/d1` → `liquid/d1.2`), EURouter
