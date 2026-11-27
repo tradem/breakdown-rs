@@ -53,6 +53,11 @@ pub enum AiConfigError {
     /// provider's key would authenticate a client built for another endpoint.
     #[error("vision vault key cannot be reused across providers")]
     VisionVaultKeyMismatch,
+    /// The vision model is not in the provider's curated vision catalogue
+    /// (issue #1013). Only checked for a CHANGED model, so a catalogue rotation
+    /// can never brick an unrelated edit of an existing configuration.
+    #[error("vision model is not curated for the provider")]
+    VisionModelUnknown,
     /// The configured assistant pair does not accept the requested
     /// `reasoning_effort` (2026-11-20 output-budget investigation): either the
     /// provider/model declares no such parameter at all, or it declares a

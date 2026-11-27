@@ -17,6 +17,18 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.94.0] - Unreleased
+### Added (issue #1013)
+
+- `provider_registry::curated_vision_model_ids` / `curated_vision_models` — a
+  THIRD curated list (text / image-generation / vision), a pure re-export of
+  `core::ai::vision`. `curated_image_model_ids` is deliberately not overloaded:
+  a diffusion generator produces images, a vision model reads them.
+- Every `ModelInfo` constructor now sets `supports_vision`: `true` for the
+  vision catalogue, and for a text-catalogue entry only when the model is in the
+  verified vision list (a live `/models` listing never asserts the capability —
+  a provider's response does not say which entries accept images).
+
 ## [0.93.0] - Unreleased
 ### Changed (issue #1013)
 

@@ -9381,6 +9381,77 @@ pub async fn list_ai_image_models<P: Ports>(
     Ok((StatusCode::OK, Json(models)))
 }
 
+/// Curated **vision** (page-image) model catalog for one provider (issue
+/// #1013). Mirrors `list_ai_decision_models` / `list_ai_image_models` with the
+/// vision catalogue: the same credential-role gate, the same pricing
+/// enrichment, and `pricing: null` honest degradation on a pricing read-model
+/// failure.
+///
+/// A provider whose vision catalogue this workspace cannot verify serves an
+/// EMPTY 200 list (a local `ollama` tag, an unverifiable reseller) — never the
+/// text catalogue, which would offer a model that cannot see.
+#[utoipa::path(
+    get,
+    path = "/ai-import/providers/{provider}/vision-models",
+    params(("provider" = String, Path, description = "Provider key (e.g. ovhcloud, scaleway, nebius)")),
+    responses(
+        (status = 200, body = [ModelInfo]),
+        (status = 403, body = ProblemDetails),
+        (status = 404, body = ProblemDetails),
+        (status = 422, body = ProblemDetails)
+    )
+)]
+pub async fn list_ai_vision_models<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(provider): Path<String>,
+) -> ApiResult<Vec<ModelInfo>> {
+    // AUTHZ-GATE: model discovery can reveal credential-backed integrations —
+    // decided via the (fallible) credential-role policy.
+    let decision = state
+        .authorization_policy
+        .authorize_credential_role(&current_user.sub)
+        .await?;
+    if decision != PolicyDecision::Allow {
+        return Err(ApiError::AiConfigForbidden(
+            "not authorized to discover AI models",
+        ));
+    }
+    if !state.ai_import_enabled {
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
+    }
+    let provider = parse_ai_provider(&provider)?;
+    let mut models = infra::ai::curated_vision_models(provider);
+    // Pricing is advisory data (see `list_ai_models`): a pricing-read-model
+    // failure must not make the picker unavailable — serve the unpriced
+    // catalog. The EU vision fallbacks carry `curated_seed` rows (migration
+    // `20261125000002`); an unseeded model keeps `pricing: null` rather than a
+    // fabricated zero.
+    let pricing_rows = match state
+        .ports
+        .ai_model_pricing_repo()
+        .list_for_provider(provider)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                provider = provider.as_str(),
+                "pricing lookup failed; serving unpriced vision-model catalog"
+            );
+            Vec::new()
+        }
+    };
+    for model in &mut models {
+        model.pricing = pricing_rows
+            .iter()
+            .find(|row| row.model == model.id)
+            .map(|row| row.pricing.clone());
+    }
+    Ok((StatusCode::OK, Json(models)))
+}
+
 /// Wire shape for `GET /v1/ai-import/defaults` (issue #471): the
 /// deployment's single-source prompt defaults (script/schedule) read from
 /// `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback TOML — the same
@@ -10124,6 +10195,13 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/ai-import/providers/{provider}/image-models",
             routing::get(list_ai_image_models::<ProductionPorts>),
+        )
+        // Issue #1013: the page-image (vision) catalogue, a sibling route for
+        // the same reason the decision and image slots have one — a fourth
+        // model picker that must never fall back to the text catalogue.
+        .route(
+            "/ai-import/providers/{provider}/vision-models",
+            routing::get(list_ai_vision_models::<ProductionPorts>),
         )
         .route(
             "/ai-import/providers/{provider}/health",

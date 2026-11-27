@@ -23,6 +23,7 @@ part 'model_info.g.dart';
 /// * [provider]
 /// * [recommended] - Whether the curated catalog designates this model as the provider's recommended default for a new AI-config creation (issue #471). Only set by the curated models endpoint (`curated_models`); models fetched live from a provider never carry the flag (`false`).  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field deserializes it as `false`, so clients keep their \"first model\" fallback for pre-flag deployments (CodeRabbit review, PR #489).
 /// * [supportedReasoningEfforts] - Every `reasoning_effort` this model DECLARES, empty when it declares none (2026-11-20 output-budget investigation).  Carried on the model list so a client can offer exactly the levels the selected pair accepts instead of discovering a `400` at import time — which is why the picker has to react to the model selection, not to one global list. Additive with `serde(default)`: a backend that predates the field (or a live provider catalogue we cannot read) yields an empty list, i.e. \"no choosable level\", never a guessed one.
+/// * [supportsVision] - Whether this model is known to accept **page images** (issue #1013), so a client can filter its vision picker instead of offering a model that will answer `400` on the first page.  `true` only for a model in a provider's verified vision catalogue (`core::ai::vision::curated_vision_model_ids`). Additive with `serde(default)`: a backend that predates the field, a live provider catalogue this workspace cannot verify, and every text/decision/image model report `false` — an unverified capability is never asserted.
 @BuiltValue()
 abstract class ModelInfo implements Built<ModelInfo, ModelInfoBuilder> {
   @BuiltValueField(wireName: r'display_name')
@@ -46,6 +47,10 @@ abstract class ModelInfo implements Built<ModelInfo, ModelInfoBuilder> {
   /// Every `reasoning_effort` this model DECLARES, empty when it declares none (2026-11-20 output-budget investigation).  Carried on the model list so a client can offer exactly the levels the selected pair accepts instead of discovering a `400` at import time — which is why the picker has to react to the model selection, not to one global list. Additive with `serde(default)`: a backend that predates the field (or a live provider catalogue we cannot read) yields an empty list, i.e. \"no choosable level\", never a guessed one.
   @BuiltValueField(wireName: r'supported_reasoning_efforts')
   BuiltList<ReasoningEffort>? get supportedReasoningEfforts;
+
+  /// Whether this model is known to accept **page images** (issue #1013), so a client can filter its vision picker instead of offering a model that will answer `400` on the first page.  `true` only for a model in a provider's verified vision catalogue (`core::ai::vision::curated_vision_model_ids`). Additive with `serde(default)`: a backend that predates the field, a live provider catalogue this workspace cannot verify, and every text/decision/image model report `false` — an unverified capability is never asserted.
+  @BuiltValueField(wireName: r'supports_vision')
+  bool? get supportsVision;
 
   ModelInfo._();
 
@@ -106,6 +111,13 @@ class _$ModelInfoSerializer implements PrimitiveSerializer<ModelInfo> {
       yield serializers.serialize(
         object.supportedReasoningEfforts,
         specifiedType: const FullType(BuiltList, [FullType(ReasoningEffort)]),
+      );
+    }
+    if (object.supportsVision != null) {
+      yield r'supports_vision';
+      yield serializers.serialize(
+        object.supportsVision,
+        specifiedType: const FullType(bool),
       );
     }
   }
@@ -179,6 +191,14 @@ class _$ModelInfoSerializer implements PrimitiveSerializer<ModelInfo> {
           ) as BuiltList<ReasoningEffort>?;
           if (valueDes == null) continue;
           result.supportedReasoningEfforts.replace(valueDes);
+          break;
+        case r'supports_vision':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.supportsVision = valueDes;
           break;
         default:
           unhandled.add(key);

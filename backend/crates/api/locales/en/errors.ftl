@@ -72,6 +72,9 @@ problem-ai-config-vision-vault-key-empty =
 problem-ai-config-vision-vault-key-mismatch =
     This credential belongs to a different provider. The assistant credential may only be reused for vision when both name the same provider.
 
+problem-ai-config-vision-model-unknown =
+    This vision model is not curated for the selected provider. Choose one of the provider's listed models — a text model cannot read page images.
+
 problem-ai-import-disabled =
     AI import is not enabled on this instance.
 

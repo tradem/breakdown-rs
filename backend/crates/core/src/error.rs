@@ -22,7 +22,7 @@ use crate::error_registry::{
     AI_CONFIG_DECISION_VAULT_KEY_EMPTY, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
     AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_REASONING_EFFORT_UNSUPPORTED,
-    AI_CONFIG_VISION_INCOMPLETE, AI_CONFIG_VISION_MODEL_EMPTY,
+    AI_CONFIG_VISION_INCOMPLETE, AI_CONFIG_VISION_MODEL_EMPTY, AI_CONFIG_VISION_MODEL_UNKNOWN,
     AI_CONFIG_VISION_PROVIDER_UNSUPPORTED, AI_CONFIG_VISION_VAULT_KEY_EMPTY,
     AI_CONFIG_VISION_VAULT_KEY_MISMATCH, AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
     AI_IMPORT_PROVIDER_QUOTA_EXHAUSTED, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
@@ -344,6 +344,11 @@ impl From<AiConfigError> for DomainError {
             AiConfigError::VisionVaultKeyMismatch => DomainError::Validation {
                 code: &AI_CONFIG_VISION_VAULT_KEY_MISMATCH,
                 reason: "vision vault key cannot be reused across providers".into(),
+                usage: None,
+            },
+            AiConfigError::VisionModelUnknown => DomainError::Validation {
+                code: &AI_CONFIG_VISION_MODEL_UNKNOWN,
+                reason: "vision model is not curated for the provider".into(),
                 usage: None,
             },
         }

@@ -5558,6 +5558,7 @@ async fn get_ai_import_job_serves_the_persisted_cost_snapshot() {
 // ---------------------------------------------------------------------------
 
 use api::handlers::list_ai_decision_models;
+use api::handlers::list_ai_vision_models;
 
 #[tokio::test]
 async fn list_ai_decision_models_serves_the_curated_catalog_with_pricing() {
@@ -6982,5 +6983,91 @@ async fn ai_config_create_rejects_a_vision_key_shared_across_providers() {
     assert!(
         commands.created.lock().await.is_empty(),
         "the command must not be dispatched"
+    );
+}
+
+/// Issue #1013: the vision (page-image) catalogue is its own route, so the
+/// picker can never fall back to the text catalogue — a text model offered as a
+/// vision slot fails on the first paid page.
+#[tokio::test]
+async fn list_ai_vision_models_serves_the_curated_catalog_with_pricing() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    // Seed pricing for exactly one curated OVHcloud vision model.
+    let priced_model = infra::ai::curated_vision_model_ids(LlmProvider::Ovhcloud)[0].to_owned();
+    ports
+        .ai_model_pricing
+        .seed(vec![seeded_pricing(LlmProvider::Ovhcloud, &priced_model)]);
+
+    let (status, Json(models)) = list_ai_vision_models::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        Path("ovhcloud".to_owned()),
+    )
+    .await
+    .expect("credential-role member may list vision models");
+    assert_eq!(status, StatusCode::OK);
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["qwen3-vl-30b-a3b", "Mistral-Small-3.2-24B-Instruct-2506"]
+    );
+    assert!(
+        models.iter().all(|model| model.supports_vision),
+        "every entry of the vision catalogue declares the capability"
+    );
+    let priced = models
+        .iter()
+        .find(|m| m.id == priced_model)
+        .expect("priced vision model in catalog");
+    assert!(priced.pricing.is_some(), "pricing enrichment applies");
+    let unpriced = models
+        .iter()
+        .find(|m| m.id != priced_model)
+        .expect("a second curated vision model exists");
+    assert!(unpriced.pricing.is_none(), "unpriced stays null, never 0");
+    // The vision slot is an optional capability slot, never a default choice.
+    assert!(models.iter().all(|m| !m.recommended));
+
+    // A provider whose catalogue this workspace cannot verify serves an EMPTY
+    // list — never the text catalogue.
+    let (status, Json(ollama)) =
+        list_ai_vision_models::<FakePorts>(State(state(ports)), user(), Path("ollama".to_owned()))
+            .await
+            .expect("an unverifiable catalogue is still a valid answer");
+    assert_eq!(status, StatusCode::OK);
+    assert!(ollama.is_empty());
+}
+
+/// Issue #1013: the ASSISTANT catalogue keeps showing everything but flags the
+/// models that can see, so the client can hint that a schedule import needs one.
+#[tokio::test]
+async fn the_assistant_catalog_flags_its_vision_capable_models() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let (status, Json(models)) =
+        list_ai_models::<FakePorts>(State(state(ports)), user(), Path("ovhcloud".to_owned()))
+            .await
+            .expect("credential-role member may list models");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        models
+            .iter()
+            .find(|m| m.id == "qwen3-vl-30b-a3b")
+            .is_some_and(|m| m.supports_vision),
+        "the curated vision model must be flagged in the text catalogue too"
+    );
+    assert!(
+        models
+            .iter()
+            .find(|m| m.id == "Mistral-Small-3.2-24B-Instruct-2506")
+            .is_some_and(|m| m.supports_vision),
+        "both OVHcloud vision models must be flagged"
     );
 }

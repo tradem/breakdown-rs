@@ -333,6 +333,8 @@ pub fn curated_decision_models(provider: LlmProvider) -> Vec<ModelInfo> {
             // A decision/image slot is not an extraction target: no effort is
             // offered for it.
             supported_reasoning_efforts: Vec::new(),
+            // A decision model reads no page images (issue #1013).
+            supports_vision: false,
         })
         .collect()
 }
@@ -355,6 +357,39 @@ pub fn curated_image_models(provider: LlmProvider) -> Vec<ModelInfo> {
             // A decision/image slot is not an extraction target: no effort is
             // offered for it.
             supported_reasoning_efforts: Vec::new(),
+            // A diffusion generator PRODUCES images; it cannot read them
+            // (issue #1013 — do not overload this list for the vision slot).
+            supports_vision: false,
+        })
+        .collect()
+}
+
+/// Curated **vision** (page-image) model IDs per provider (issue #1013).
+/// Pure re-export of the core catalogue so the vision-models endpoint and the
+/// aggregate's save-time validation share one source.
+pub fn curated_vision_model_ids(provider: LlmProvider) -> &'static [&'static str] {
+    breakdown_core::ai::curated_vision_model_ids(provider)
+}
+
+/// Build `ModelInfo` list for a provider's curated **vision models**
+/// (issue #1013) — the catalog the client's vision picker reads instead of
+/// offering a text model that would answer `400` on the first page.
+///
+/// No `recommended` flag: the vision slot is an optional capability slot, and
+/// the same-key reuse rule means the operator often keeps the extraction
+/// provider. `supports_vision` is `true` by construction, and every model
+/// carries its own pricing row where one exists (migration `20261125000002`).
+pub fn curated_vision_models(provider: LlmProvider) -> Vec<ModelInfo> {
+    curated_vision_model_ids(provider)
+        .iter()
+        .map(|id| ModelInfo {
+            id: (*id).to_owned(),
+            display_name: None,
+            provider,
+            recommended: false,
+            pricing: None,
+            supported_reasoning_efforts: Vec::new(),
+            supports_vision: true,
         })
         .collect()
 }
@@ -375,6 +410,9 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
             )
             .map(<[breakdown_core::ai::ReasoningEffort]>::to_vec)
             .unwrap_or_default(),
+            // Issue #1013: the assistant picker keeps showing everything but can
+            // hint that a tier-4 (schedule) import needs a model that sees.
+            supports_vision: breakdown_core::ai::is_curated_vision_model(provider, id),
         })
         .collect()
 }

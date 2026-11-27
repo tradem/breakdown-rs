@@ -19,6 +19,8 @@ class _$ModelInfo extends ModelInfo {
   final bool? recommended;
   @override
   final BuiltList<ReasoningEffort>? supportedReasoningEfforts;
+  @override
+  final bool? supportsVision;
 
   factory _$ModelInfo([void Function(ModelInfoBuilder)? updates]) =>
       (ModelInfoBuilder()..update(updates))._build();
@@ -29,7 +31,8 @@ class _$ModelInfo extends ModelInfo {
       this.pricing,
       required this.provider,
       this.recommended,
-      this.supportedReasoningEfforts})
+      this.supportedReasoningEfforts,
+      this.supportsVision})
       : super._();
   @override
   ModelInfo rebuild(void Function(ModelInfoBuilder) updates) =>
@@ -47,7 +50,8 @@ class _$ModelInfo extends ModelInfo {
         pricing == other.pricing &&
         provider == other.provider &&
         recommended == other.recommended &&
-        supportedReasoningEfforts == other.supportedReasoningEfforts;
+        supportedReasoningEfforts == other.supportedReasoningEfforts &&
+        supportsVision == other.supportsVision;
   }
 
   @override
@@ -59,6 +63,7 @@ class _$ModelInfo extends ModelInfo {
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, recommended.hashCode);
     _$hash = $jc(_$hash, supportedReasoningEfforts.hashCode);
+    _$hash = $jc(_$hash, supportsVision.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -71,7 +76,8 @@ class _$ModelInfo extends ModelInfo {
           ..add('pricing', pricing)
           ..add('provider', provider)
           ..add('recommended', recommended)
-          ..add('supportedReasoningEfforts', supportedReasoningEfforts))
+          ..add('supportedReasoningEfforts', supportedReasoningEfforts)
+          ..add('supportsVision', supportsVision))
         .toString();
   }
 }
@@ -106,6 +112,11 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
           ListBuilder<ReasoningEffort>? supportedReasoningEfforts) =>
       _$this._supportedReasoningEfforts = supportedReasoningEfforts;
 
+  bool? _supportsVision;
+  bool? get supportsVision => _$this._supportsVision;
+  set supportsVision(bool? supportsVision) =>
+      _$this._supportsVision = supportsVision;
+
   ModelInfoBuilder() {
     ModelInfo._defaults(this);
   }
@@ -119,6 +130,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
       _provider = $v.provider;
       _recommended = $v.recommended;
       _supportedReasoningEfforts = $v.supportedReasoningEfforts?.toBuilder();
+      _supportsVision = $v.supportsVision;
       _$v = null;
     }
     return this;
@@ -149,6 +161,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
                 provider, r'ModelInfo', 'provider'),
             recommended: recommended,
             supportedReasoningEfforts: _supportedReasoningEfforts?.build(),
+            supportsVision: supportsVision,
           );
     } catch (_) {
       late String _$failedField;

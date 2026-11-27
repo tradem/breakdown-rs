@@ -72,6 +72,9 @@ problem-ai-config-vision-vault-key-empty =
 problem-ai-config-vision-vault-key-mismatch =
     Diese Berechtigung gehört zu einem anderen Anbieter. Die Assistenten-Berechtigung darf nur dann für Vision wiederverwendet werden, wenn beide denselben Anbieter nutzen.
 
+problem-ai-config-vision-model-unknown =
+    Dieses Vision-Modell ist für den gewählten Anbieter nicht freigegeben. Bitte ein Modell aus der Liste des Anbieters wählen — ein Textmodell kann keine Seitenbilder lesen.
+
 problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
 

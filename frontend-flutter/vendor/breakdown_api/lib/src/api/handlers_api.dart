@@ -6249,6 +6249,86 @@ class HandlersApi {
     );
   }
 
+  /// Curated **vision** (page-image) model catalog for one provider (issue #1013). Mirrors &#x60;list_ai_decision_models&#x60; / &#x60;list_ai_image_models&#x60; with the vision catalogue: the same credential-role gate, the same pricing enrichment, and &#x60;pricing: null&#x60; honest degradation on a pricing read-model failure.
+  /// A provider whose vision catalogue this workspace cannot verify serves an EMPTY 200 list (a local &#x60;ollama&#x60; tag, an unverifiable reseller) — never the text catalogue, which would offer a model that cannot see.
+  ///
+  /// Parameters:
+  /// * [provider] - Provider key (e.g. ovhcloud, scaleway, nebius)
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<ModelInfo>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<ModelInfo>>> listAiVisionModels({
+    required String provider,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/providers/{provider}/vision-models'
+        .replaceAll(
+            '{' r'provider' '}',
+            encodeQueryParameter(_serializers, provider, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<ModelInfo>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(ModelInfo)]),
+            ) as BuiltList<ModelInfo>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<ModelInfo>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// listBlocks
   /// Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).
   ///

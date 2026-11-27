@@ -99,7 +99,8 @@ pub use prompts::{default_flat_schedule_prompt, default_prompt};
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_decision_model_ids, curated_decision_models,
     curated_image_model_ids, curated_image_models, curated_model_ids, curated_models,
-    is_decision_capable, list_providers, recommended_model, resolve_provider,
+    curated_vision_model_ids, curated_vision_models, is_decision_capable, list_providers,
+    recommended_model, resolve_provider,
 };
 pub use queue::PgAiImportQueue;
 pub use runtime::AiWorkerRuntime;

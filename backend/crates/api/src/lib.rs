@@ -153,6 +153,7 @@ use utoipa::OpenApi;
         handlers::list_ai_models,
         handlers::list_ai_decision_models,
         handlers::list_ai_image_models,
+        handlers::list_ai_vision_models,
         handlers::ai_provider_health::get_ai_provider_health,
         handlers::get_ai_import_defaults,
         handlers::create_ai_config,
