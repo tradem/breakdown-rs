@@ -6768,6 +6768,106 @@ async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
     }
 }
 
+/// Issue #1013 (review finding round 4): the SHARED-key path. A secondary slot
+/// that reuses the extraction key is accepted without its own lookup, so it
+/// relies entirely on the primary pre-check. That check compares the key with
+/// the projection — a request ahead of a stale projection can resubmit the old
+/// (since revoked) primary key and pass it on to both slots.
+#[tokio::test]
+async fn update_ai_config_revalidates_a_shared_key_a_stale_projection_still_shows() {
+    // (label, request version, expected problem code — `None` = accepted)
+    let cases: [(&str, u64, Option<&str>); 2] = [
+        ("shared key, on the projected state (no lookup)", 2, None),
+        (
+            "shared key, ahead of the stale projection (revoked key re-checked)",
+            3,
+            Some("ai-config.vault-key-forbidden"),
+        ),
+    ];
+
+    for (label, request_version, expected_code) in cases {
+        let ports = FakePorts::default();
+        ports
+            .membership_repo
+            .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+            .await;
+        // The projection still shows `shared-key`, but the binding is GONE from
+        // the vault (revoked after it was written).
+        ports
+            .settings_repo
+            .by_vault_key
+            .lock()
+            .await
+            .remove("shared-key");
+        let commands = ports.ai_config_commands.clone();
+        let repo = ports.ai_config_repo.clone();
+        let state = state(ports);
+
+        let mut view = config_view(TEST_SUB);
+        view.version = AggregateVersion(2);
+        view.provider = LlmProvider::Neuralwatt;
+        view.vault_key_id = "shared-key".to_owned();
+        // Both secondary slots reuse the extraction key on the same provider —
+        // the shape that needs no lookup of its own.
+        view.vision_provider = Some(LlmProvider::Neuralwatt);
+        view.vision_model = Some("vision-model".to_owned());
+        view.vision_vault_key_id = Some("shared-key".to_owned());
+        view.decision_provider = Some(LlmProvider::Neuralwatt);
+        view.decision_model = Some("clef-flash".to_owned());
+        view.decision_vault_key_id = Some("shared-key".to_owned());
+        let id = view.id;
+        repo.views.lock().await.insert(id, view);
+
+        let raw = serde_json::json!({
+            "provider": "neuralwatt",
+            "assistant_model": "assistant-v2",
+            "image_model": null,
+            "prompts": {},
+            "vault_key_id": "shared-key",
+            "vision_provider": "neuralwatt",
+            "vision_model": "vision-model",
+            "vision_vault_key_id": "shared-key",
+            "decision_provider": "neuralwatt",
+            "decision_model": "clef-flash",
+            "decision_vault_key_id": "shared-key",
+            "version": request_version
+        });
+        let request: UpdateAiConfigRequest =
+            serde_json::from_value(raw).expect("the request deserializes");
+
+        match expected_code {
+            Some(code) => {
+                let problem =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect_err(label)
+                        .into_problem();
+                assert_eq!(
+                    problem.status,
+                    StatusCode::FORBIDDEN.as_u16(),
+                    "{label}: status"
+                );
+                assert_eq!(problem.code, code, "{label}: code");
+                assert!(
+                    commands.updated.lock().await.is_empty(),
+                    "{label}: the command must not be dispatched"
+                );
+            }
+            None => {
+                let (status, _) =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect(label);
+                assert_eq!(status, StatusCode::OK, "{label}: status");
+                assert!(
+                    !commands.updated.lock().await.is_empty(),
+                    "{label}: an on-projection save keeps the no-lookup path"
+                );
+            }
+        }
+    }
+}
+
 /// The Decision slot carries the same rule (its shape predates #1013, the
 /// guard is shared): provider and key arrive together, or not at all.
 #[tokio::test]

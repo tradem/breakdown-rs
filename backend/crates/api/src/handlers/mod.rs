@@ -8837,11 +8837,21 @@ pub async fn update_ai_config<P: Ports>(
     // `ai-config.vault-key-forbidden`). The read-model lookup lives here
     // because the handler is the only legitimate projection consumer (CQRS
     // boundary); the aggregate only ever sees the opaque key and cannot
-    // resolve its provider. Skipped for an unchanged key: the stored binding
-    // was validated (owned + active provider) when it was introduced, and a
-    // spurious rejection on projector lag must not block a prompt/model-only
-    // edit.
-    if request.vault_key_id != view.vault_key_id {
+    // resolve its provider.
+    //
+    // Skipped ONLY for an unchanged key while the request acts on exactly the
+    // projected state (`version` echoed from the same read model): then either
+    // the aggregate is at that version — the stored key IS this key, nothing is
+    // reintroduced — or the command fails the optimistic-lock guard below and
+    // writes nothing. A request AHEAD of the projection may be resubmitting an
+    // OLDER key that has been revoked since, and it is the only validation the
+    // SHARED-key path of the secondary slots relies on (`validate_secondary_
+    // vault_key` accepts same-key reuse without its own lookup), so it must be
+    // re-checked (issue #1013 review, round 4).
+    let acting_on_projected_state = request.version == view.version;
+    let primary_key_unchanged =
+        request.vault_key_id == view.vault_key_id && request.provider == view.provider;
+    if !(primary_key_unchanged && acting_on_projected_state) {
         validate_replacement_vault_key(
             &state,
             &request.vault_key_id,
@@ -8906,7 +8916,6 @@ pub async fn update_ai_config<P: Ports>(
         && effective_decision_key == view.decision_vault_key_id
         && request.provider == view.provider
         && request.vault_key_id == view.vault_key_id;
-    let acting_on_projected_state = request.version == view.version;
     if (!decision_pair_unchanged || !acting_on_projected_state)
         && let (Some(decision_provider), Some(decision_vault_key_id)) = (
             effective_decision_provider,
