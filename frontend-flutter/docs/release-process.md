@@ -155,24 +155,52 @@ helper, and the register allocator is happy; the reductions that actually
 crash hand it to a sink the compiler cannot see through (upstream's
 `print(() => runId)`, and in this app the `Either.match(...)` closures of
 `AiConfigController.create`). A shape probe can therefore never prove that
-*this* app compiles. The authority is an app-wide release AOT compile, which
-is cheap enough to run by hand and names the offending function on the first
-failure:
+*this* app compiles.
+
+**The authority is a release build for the target ABIs** — the very
+`android_aot_release_android-*` task that killed the pipeline, i.e. the
+Android build of the artifact you ship (the acceptance criterion of the fix
+for issue #1011 was exactly this, ~2 min with a warm Gradle):
 
 ```bash
-# 1. release kernel only (no Gradle, no Android SDK, no keystore, ~40 s)
+flutter build apk --flavor dev --release --target-platform android-arm64
+# repeat per shipped ABI (android-arm, or the AAB/split you publish)
+```
+
+**A host AOT compile of the app's own kernel is the fast DIAGNOSTIC, never the
+proof.** `dart compile aot-snapshot` runs the *host's* `gen_snapshot`, so it
+exercises the same register-allocator pipeline in ~80 s without Gradle, an
+Android SDK or a keystore, and it names the offending function on the first
+failure — but it produces a host-architecture snapshot, so a pass does not
+show that the Android binaries for the target ABIs compile. Use it to find a
+culprit, then confirm with the release build above.
+
+`flutter assemble` writes its intermediates to a configuration-hashed
+directory under `.dart_tool/flutter_build/` — one `app.dill` per distinct
+defines/`--output` combination — so a glob also matches kernels of *other*
+configurations (an old `--output` directory alone changes the hash), and
+`dart compile` accepts exactly one input. Clear that cache first so only this
+build's kernel can remain, and chain the two steps so a failed kernel build
+can never fall through to an older `app.dill`:
+
+```bash
+rm -rf .dart_tool/flutter_build   # so exactly one app.dill can exist below
+# 1. release kernel only (no Gradle, no Android SDK, no keystore, ~40 s);
+#    `&&` keeps step 2 out of a failed build
 flutter assemble --no-version-check --output=/tmp/fbuild \
   -dTargetFile=lib/main.dart -dTargetPlatform=android -dBuildMode=release \
   -dTrackWidgetCreation=false -dTreeShakeIcons=true -dFlavor=dev \
-  -dAndroidArchs="android-x64" -dMinSdkVersion=24 kernel_snapshot_program
-# 2. AOT-compile it with the SDK's own compiler (~40 s)
-dart compile aot-snapshot .dart_tool/flutter_build/*/app.dill -o /tmp/app.aot
+  -dAndroidArchs="android-x64" -dMinSdkVersion=24 kernel_snapshot_program \
+&& dart compile aot-snapshot \
+     "$(find .dart_tool/flutter_build -name app.dill)" -o /tmp/app.aot
 # crash report line: "Crash occurred when compiling ... in AOT mode in
 # AllocateRegisters pass" — that is the function whose shape to rewrite
 ```
 
-Prefer that over trusting the probe whenever the pin moves or a controller
-grows a `switch` over a sealed type with a deferred `final`.
+Prefer the release build over trusting the probe whenever the pin moves or a
+controller grows a `switch` over a sealed type with a deferred `final`; reach
+for the kernel diagnostic when you want the culprit named without a full
+Gradle build.
 
 ## Installing (testers)
 
