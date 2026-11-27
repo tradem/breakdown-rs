@@ -2,6 +2,7 @@
 # Copyright (C) 2024 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 name: CI
 
@@ -208,19 +209,19 @@ jobs:
         run: bash scripts/test-add-spdx-headers.sh
         working-directory: .
 
-  # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.99,
+  # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.100,
   # matching the Dockerfile builder) is verified on every PR with the pinned
-  # 1.99.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).
+  # 1.100.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).
   msrv:
-    name: MSRV (rust-version 1.99)
+    name: MSRV (rust-version 1.100)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.99
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.100
         with:
-          toolchain: 1.99.0
+          toolchain: 1.100.0
       - uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: "backend"

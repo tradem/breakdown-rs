@@ -32,6 +32,32 @@ generated notes are never used.
 
 ## [Unreleased]
 
+### Changed
+
+- **Rust toolchain / MSRV floor 1.99 → 1.100 (issue #995, ADR-020 D2).**
+  `[workspace.package] rust-version` is now `1.100`, the production builder
+  image moved to `rust:1.100-bookworm` (the floor keeps matching the builder,
+  as the `backend/Cargo.toml` comment requires), and the CI `msrv` job pins
+  `1.100.0` instead of `1.99.0`. Per ADR-020 D2 an MSRV bump is a **MAJOR**
+  change per crate; no crate is published and no deployment target exists yet,
+  so this is bookkeeping only — the crate versions at this release are
+  unchanged (ADR-020 D3 lockstep, `core → infra → api`, single coordinated
+  workspace change). The vendored `kameo_es` patches keep `rust-version =
+  "1.99"`: a dependency floor below the workspace floor is compatible and the
+  patches are not ours to bump.
+
+### Removed
+
+- **Four dependencies cargo 1.100's new `unused_dependencies` lint flagged**
+  (issue #995) — dead weight, not a behaviour change, no crate version bump:
+  `api`'s `fluent` umbrella crate (every call site uses `fluent-bundle` /
+  `fluent-syntax` directly), `infra`'s `rust-embed` (report templates are
+  embedded with `include_str!` since #642, `RustEmbed` is used nowhere), and
+  the `architecture_tests` link-time dependencies `api`, `infra` and
+  `breakdown_core` — that crate's `src/lib.rs` is a comment block and its
+  boundary checks read those manifests as text, so what little it links
+  (`rust_arkitect`, `toml`) now sits in `[dev-dependencies]`.
+
 ### Fixed
 
 - **CodeRabbitAI review, PR #993 (issue #974, nightly live vision smoke):**

@@ -179,7 +179,6 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "breakdown_core",
- "fluent",
  "fluent-bundle",
  "fluent-syntax",
  "futures",
@@ -247,9 +246,6 @@ checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 name = "architecture_tests"
 version = "0.3.2"
 dependencies = [
- "api",
- "breakdown_core",
- "infra",
  "rust_arkitect",
  "toml 1.1.6+spec-1.1.0",
 ]
@@ -1977,16 +1973,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fluent"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8137a6d5a2c50d6b0ebfcb9aaa91a28154e0a70605f112d30cb0cd4a78670477"
-dependencies = [
- "fluent-bundle",
- "unic-langid",
-]
-
-[[package]]
 name = "fluent-bundle"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3204,7 +3190,6 @@ dependencies = [
  "rand 0.10.4",
  "redis",
  "reqwest 0.12.28",
- "rust-embed",
  "rust_decimal",
  "schemars 1.2.3",
  "serde",
@@ -5867,41 +5852,6 @@ dependencies = [
  "rustc_version",
  "syn 3.0.10",
  "unicode-ident",
-]
-
-[[package]]
-name = "rust-embed"
-version = "8.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e98f580cf7a2863aeb6827800283f52cbe6fb3f3bb7c1843783f903c16dcb8ad"
-dependencies = [
- "rust-embed-impl",
- "rust-embed-utils",
- "walkdir",
-]
-
-[[package]]
-name = "rust-embed-impl"
-version = "8.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a93e2f69cf224a6c7df7509aa5ba4a23f56828ee41b040e92ac8762371eb9ba7"
-dependencies = [
- "mime_guess",
- "proc-macro2",
- "quote",
- "rust-embed-utils",
- "syn 2.0.119",
- "walkdir",
-]
-
-[[package]]
-name = "rust-embed-utils"
-version = "8.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "915e33dccbe7deb2b8a342dc4c517503fe85e0230ddbae40a4fb0220493dad9b"
-dependencies = [
- "sha2 0.11.1",
- "walkdir",
 ]
 
 [[package]]
