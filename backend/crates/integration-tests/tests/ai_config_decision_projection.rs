@@ -549,6 +549,38 @@ async fn vision_slot_reaches_the_projection_and_the_read_view() -> Result<()> {
     assert_eq!(read_view.vision_vault_key_id.as_deref(), Some("vision-key"));
     assert!(!read_view.vision_zdr_attested);
 
+    // 3b) The WORKER resolves the same slot — this is the pair the page calls
+    //     will actually be billed to (issue #1013).
+    let worker_config = AiConfigRepositoryImpl::new(pool.clone())
+        .find_worker_config(&test_user(), DocumentKind::Schedule)
+        .await
+        .expect("worker config resolution must succeed")
+        .expect("the caller has one active config");
+    let vision = worker_config
+        .vision
+        .expect("the configured vision slot must reach the worker");
+    assert_eq!(vision.provider, LlmProvider::Ovhcloud);
+    assert_eq!(vision.model, VISION_MODEL);
+    assert_eq!(vision.vault_key_id, "vision-key");
+    assert!(!vision.zdr_attested);
+
+    // 3c) A partially-set row (hand-edited projection) degrades to "use the
+    //     assistant pair" instead of a half-configured page client.
+    sqlx::query("UPDATE ai_import.projection_ai_config SET vision_model = NULL WHERE id = $1")
+        .bind(config_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| anyhow!("partial vision slot update failed: {e}"))?;
+    let degraded = AiConfigRepositoryImpl::new(pool.clone())
+        .find_worker_config(&test_user(), DocumentKind::Schedule)
+        .await
+        .expect("worker config resolution must still succeed")
+        .expect("the caller has one active config");
+    assert!(
+        degraded.vision.is_none(),
+        "half a vision slot must degrade to the assistant pair, never to a broken client"
+    );
+
     // 4) `Some(None)` clears the slot — the import falls back to the assistant
     //    pair, and the projection follows.
     let cleared = commands

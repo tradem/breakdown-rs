@@ -49,6 +49,15 @@ generated notes are never used.
 
 ### Changed
 
+- **AI import: the worker sends pages to the vision pair (issue #1013, part
+  2/4).** With a vision slot configured, the page-streaming schedule extractor
+  renders each page and sends it to the VISION provider/model with that
+  account's own attestation; the flat-text path keeps the assistant pair. The
+  `(provider, model)` breaker, the trial token, the billed-call ledger and the
+  cost snapshot all follow the pair that actually billed, so a page outage can
+  never hold a text job (and pages are never priced with the text model's rate
+  card). Without a vision slot nothing changes. Crate versions: `infra` 0.93.0,
+  `api` 0.75.0.
 - **AI catalogue rotation (issue #1007).** The curated assistant-LLM and
   Decision-Model catalogues were re-checked on **2026-11-26 (UTC)** and
   rotated. Verification is not uniform, and the difference matters for the next

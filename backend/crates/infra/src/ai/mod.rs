@@ -118,7 +118,7 @@ pub use workers::{
     AppliedEpisodeIdentity, ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker,
     ScriptApplyResult, ScriptImportWorker, UuidVersion, validate_chunk_count,
 };
-pub use workers::{DecisionPass, DecisionResolution};
+pub use workers::{DecisionPass, DecisionResolution, ScheduleVision};
 
 use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};
 

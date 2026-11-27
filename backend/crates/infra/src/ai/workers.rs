@@ -388,6 +388,27 @@ pub struct DecisionPass {
     pub model: String,
 }
 
+/// The resolved PAGE-IMAGE pair of one schedule job (issue #1013).
+///
+/// Held as `Arc<dyn LlmClient>` rather than a second generic parameter on
+/// [`ScheduleImportWorker`]: the vision provider can have a different concrete
+/// transport than the text one (`OllamaChatClient` for a local `ollama` vision
+/// model, the OpenAI-compatible client for a hosted one), and a network-bound
+/// dynamic dispatch does not justify threading a second type parameter through
+/// every construction site and test harness. The flat-text path keeps using the
+/// worker's own `client`.
+#[derive(Clone)]
+pub struct ScheduleVision {
+    /// The transport that carries page images (its credential is already
+    /// resolved into it).
+    pub client: Arc<dyn LlmClient>,
+    pub provider: breakdown_core::ai::LlmProvider,
+    pub model: String,
+    /// The attestation of the VISION provider ACCOUNT — a different account
+    /// than the extraction one as soon as the providers differ (issue #968).
+    pub zdr_attested: bool,
+}
+
 impl<Q, C, E> ScriptImportWorker<Q, C, E>
 where
     Q: AiImportQueue + 'static,
@@ -1514,13 +1535,11 @@ where
                     cost: Some(
                         compute_cost_snapshot(
                             self.pricing.as_deref(),
-                            self.provider,
-                            &self.model,
                             // Issue #970 round 14: the prior requests keep the
                             // pair that billed them; this attempt's own
                             // requests are priced with this worker's pair.
                             &prior_calls,
-                            &attempt_calls,
+                            &attributed(self.provider, &self.model, &attempt_calls),
                             // Both components, each with its own rate card
                             // (issue #768).
                             decision_cost_input(self.decision.as_ref(), decision_usage),
@@ -1645,10 +1664,12 @@ async fn find_pricing_row(
 /// #794).
 async fn compute_cost_snapshot(
     pricing: Option<&dyn AiModelPricingRepository>,
-    provider: breakdown_core::ai::LlmProvider,
-    model: &str,
     prior: &[BilledCall],
-    attempt_calls: &[LlmCallUsage],
+    // This attempt's paid requests, ALREADY attributed to the pair that billed
+    // them. Attributed rather than assumed since issue #1013: one schedule
+    // attempt can span two pairs (page images on the vision pair, flat text on
+    // the assistant pair), and each group must be priced with its OWN rate card.
+    attempt_calls: &[BilledCall],
     decision: Option<DecisionUsage>,
 ) -> CostBreakdown {
     let decision_component = match decision {
@@ -1669,7 +1690,7 @@ async fn compute_cost_snapshot(
     // several; every group is priced with its OWN rate card and keeps its own
     // per-request energy caps.
     let mut groups: Vec<(LlmProvider, String, Vec<LlmCallUsage>)> = Vec::new();
-    for call in prior {
+    for call in prior.iter().chain(attempt_calls.iter()) {
         match groups
             .iter_mut()
             .find(|(grouped_provider, grouped_model, _)| {
@@ -1679,19 +1700,6 @@ async fn compute_cost_snapshot(
             None => groups.push((call.provider, call.model.clone(), vec![call.usage])),
         }
     }
-    // This attempt's own requests belong to this worker's pair. An empty set adds
-    // no group, so a fully resumed re-drive prices exactly the prior ledger.
-    if !attempt_calls.is_empty() {
-        match groups
-            .iter_mut()
-            .find(|(grouped_provider, grouped_model, _)| {
-                *grouped_provider == provider && grouped_model == model
-            }) {
-            Some((_, _, calls)) => calls.extend_from_slice(attempt_calls),
-            None => groups.push((provider, model.to_owned(), attempt_calls.to_vec())),
-        }
-    }
-
     // Resolve each group's pricing row (one lookup per pair, as before).
     let mut rows: Vec<Option<breakdown_core::ai::ModelPricing>> = Vec::with_capacity(groups.len());
     for (group_provider, group_model, _) in &groups {
@@ -1793,6 +1801,9 @@ pub struct ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     /// See [`ScriptImportWorker::decision`] (issue #767 for the resolution
     /// enum).
     pub decision: Option<DecisionResolution>,
+    /// The PAGE-IMAGE pair (issue #1013). `None` sends pages to the assistant
+    /// pair — the behaviour of every configuration that predates the slot.
+    pub vision: Option<ScheduleVision>,
 }
 
 impl<Q, C, E> ScheduleImportWorker<Q, C, E>
@@ -1945,24 +1956,45 @@ where
         // Issue #970 round 14: this attempt's own requests, priced with this
         // worker's pair at completion (the prior entries keep theirs).
         let mut attempt_calls: Vec<LlmCallUsage> = Vec::new();
+        // Issue #1013: the page requests of this attempt, attributed to the vision
+        // pair (or the assistant pair when no vision slot is configured). Kept
+        // separate from `attempt_calls` so each pair is priced with its own row.
+        let mut page_billed_calls: Vec<BilledCall> = Vec::new();
         let mut decision_usage = UsageAccumulator::default();
         // Rows the schedule scoring request left unscored and whether that
         // request failed (issue #767); both stay empty on the native CSV path,
         // which never scores at all.
         let mut decision_scoring = super::decision_scoring::ScoringReport::default();
+        // Issue #960: a spatial PDF schedule streams PAGE BY PAGE through the
+        // multimodal vision seam with carry-over day state; the legacy-pdftotext
+        // rollback target (`AI_DOCUMENT_PARSER=legacy`) keeps the pre-#960
+        // single flat-text request.
+        let page_streaming = !native_csv
+            && job.source_format == SourceFormat::Pdf
+            && self.extractor.parser_fingerprint() != super::LEGACY_PARSER_FINGERPRINT;
+        // Issue #1013: the extraction requests of THIS attempt are billed to the
+        // pair that actually serves them — the vision pair when pages stream and
+        // one is configured, otherwise the assistant pair. The breaker consult
+        // below is therefore bound to that same pair: a text outage must not
+        // hold a page-image job (and vice versa), which is the isolation
+        // acceptance criterion of the vision slot.
+        let (extraction_provider, extraction_model) = match (&self.vision, page_streaming) {
+            (Some(vision), true) => (vision.provider, vision.model.as_str()),
+            _ => (self.provider, self.model.as_str()),
+        };
         // Issue #871: the breaker consult for this attempt, bound to the pair the
         // attempt resolved. A schedule job is ONE extraction unit, so this is its
         // only boundary.
         let gate = ProviderGate {
             queue: self.queue.as_ref(),
-            provider: self.provider,
-            model: &self.model,
+            provider: extraction_provider,
+            model: extraction_model,
             threshold: self.bounds.breaker_failure_threshold,
             enabled: self.bounds.breaker_enabled,
             trial: trial_pending(
                 self.queue.as_ref(),
-                self.provider,
-                &self.model,
+                extraction_provider,
+                extraction_model,
                 job.id,
                 self.bounds.breaker_enabled,
             )
@@ -1984,13 +2016,7 @@ where
                 .await?;
                 return Ok(String::new());
             }
-            // Issue #960: a spatial PDF schedule streams PAGE BY PAGE through
-            // the multimodal vision seam with carry-over day state; the
-            // legacy-pdftotext rollback target (`AI_DOCUMENT_PARSER=legacy`)
-            // keeps the pre-#960 single flat-text request.
-            if job.source_format == SourceFormat::Pdf
-                && self.extractor.parser_fingerprint() != super::LEGACY_PARSER_FINGERPRINT
-            {
+            if page_streaming {
                 let (parsed, page_calls) = match self
                     .extract_pdf_pages(
                         job,
@@ -2012,8 +2038,9 @@ where
                             self.queue.as_ref(),
                             job.id,
                             worker_id,
-                            self.provider,
-                            &self.model,
+                            // Issue #1013: the pages billed before the hold belong to the PAGE pair.
+                            extraction_provider,
+                            extraction_model,
                             failure.usage.take(),
                         )
                         .await;
@@ -2038,8 +2065,9 @@ where
                             self.queue.as_ref(),
                             job.id,
                             worker_id,
-                            self.provider,
-                            &self.model,
+                            // Issue #1013: the page ledger is the vision pair's.
+                            extraction_provider,
+                            extraction_model,
                             failure.usage.take(),
                         )
                         .await;
@@ -2051,7 +2079,16 @@ where
                 // append per page) and in this attempt's own ledger (the page
                 // loop fills it); this accumulator covers them so the
                 // completion-time telemetry is complete.
-                attempt_calls.extend_from_slice(&page_calls);
+                //
+                // Issue #1013: the page ledger is kept SEPARATE from the flat
+                // ledger, because the two are priced against different pairs —
+                // folding them together would price the vision model's requests
+                // with the assistant model's rate card.
+                page_billed_calls.extend(attributed(
+                    extraction_provider,
+                    extraction_model,
+                    &page_calls,
+                ));
                 extraction_usage.record_all(&page_calls);
                 parsed
             } else {
@@ -2191,6 +2228,12 @@ where
         if let Some(heartbeat) = heartbeat {
             heartbeat.stop();
         }
+        // Issue #1013: the two ledgers are merged ONLY for pricing, each keeping
+        // the pair that billed it. The flat path contributes the assistant
+        // pair's requests, the page path the vision pair's (which is the
+        // assistant pair again when no vision slot is configured).
+        let mut attempt_billed_calls = attributed(self.provider, &self.model, &attempt_calls);
+        attempt_billed_calls.extend(page_billed_calls);
         self.queue
             .record_worker_telemetry(
                 job.id,
@@ -2224,11 +2267,11 @@ where
                     } else {
                         compute_cost_snapshot(
                             self.pricing.as_deref(),
-                            self.provider,
-                            &self.model,
                             // Issue #970 round 14: see the script worker.
                             &prior_calls,
-                            &attempt_calls,
+                            // Issue #1013: the page requests carry the vision
+                            // pair, the flat requests the assistant pair.
+                            &attempt_billed_calls,
                             decision_cost_input(self.decision.as_ref(), decision_usage),
                         )
                         .await
@@ -2293,6 +2336,24 @@ where
         // round 13): one page attempt may re-request its answer, and the #794
         // energy cap applies to each request.
         let mut page_calls: Vec<LlmCallUsage> = Vec::new();
+        // Issue #1013: which transport and which ACCOUNT carry the pages. The
+        // vision slot is OPTIONAL — without it the assistant pair serves the
+        // pages, which is the pre-#1013 behaviour and stays byte-identical.
+        let page_transport: &dyn LlmClient = match &self.vision {
+            Some(vision) => vision.client.as_ref(),
+            None => self.client.as_ref(),
+        };
+        let page_zdr_attested = match &self.vision {
+            Some(vision) => vision.zdr_attested,
+            None => self.zdr_attested,
+        };
+        // The config's `reasoning_effort` was validated against the ASSISTANT
+        // pair; a different vision model may not accept it, so a page call on a
+        // distinct pair defers to that provider's own default.
+        let page_reasoning_effort = match &self.vision {
+            Some(_) => breakdown_core::ai::ReasoningEffortChoice::Auto,
+            None => self.reasoning_effort,
+        };
         // Issue #942 W1 follow-up, mirrored from the script chunk loop
         // (CodeRabbit review, PR #967 round 8): trial ownership is a fact
         // about the NEXT paid call. A successful page 1 closes the breaker and
@@ -2307,10 +2368,12 @@ where
         for (index, page) in document.pages.iter().enumerate() {
             let page_number = page.page_number;
             if gate.trial {
+                // Issue #1013: the trial token belongs to the PAGE pair, not to
+                // the assistant pair the config's `model` names.
                 let trial = trial_pending(
                     self.queue.as_ref(),
-                    self.provider,
-                    &self.model,
+                    gate.provider,
+                    gate.model,
                     job.id,
                     self.bounds.breaker_enabled,
                 )
@@ -2357,8 +2420,11 @@ where
                 user_context.push_str("\n</spatial-text-hint>");
             }
             let vision_request = LlmVisionRequest {
-                provider: self.provider,
-                model: self.model.clone(),
+                // Issue #1013: the PAGE pair, never the assistant pair. A
+                // text-only assistant model must not receive an image content
+                // part, which is exactly the defect this slot fixes.
+                provider: gate.provider,
+                model: gate.model.to_owned(),
                 prompt: self.prompt.clone(),
                 user_context,
                 page: LlmVisionPageInput {
@@ -2369,17 +2435,18 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
                 reasoning_effort: resolved_reasoning_effort(
-                    self.provider,
-                    &self.model,
-                    self.reasoning_effort,
+                    gate.provider,
+                    gate.model,
+                    page_reasoning_effort,
                 )
                 .map(|effort| effort.as_str().to_owned()),
-                // Issue #968: the config's ZDR attestation travels with the
-                // request so the pre-egress gate resolves the effective policy.
-                zdr_attested: self.zdr_attested,
+                // Issue #968: the attestation of the account that will RECEIVE
+                // the image travels with the request. Issue #1013: that can be a
+                // different account than the extraction one.
+                zdr_attested: page_zdr_attested,
             };
             let (extraction, call_calls) = match retry_schedule_page(
-                self.client.as_ref(),
+                page_transport,
                 vision_request,
                 self.bounds.max_attempt_retries as usize,
                 &gate,
@@ -2401,7 +2468,9 @@ where
                 self.queue.as_ref(),
                 job.id,
                 worker_id,
-                &attributed(self.provider, &self.model, &call_calls),
+                // Issue #1013: the page's requests belong to the pair that
+                // billed them, so the ledger prices them with the right row.
+                &attributed(gate.provider, gate.model, &call_calls),
             )
             .await
             .map_err(CallFailure::from)?;

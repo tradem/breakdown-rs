@@ -338,6 +338,22 @@ fn configured_bindings(configs: &[AiConfigView], provider: LlmProvider) -> Vec<C
                 .unwrap_or(&config.vault_key_id);
             push_binding(&mut bindings, decision_model, key);
         }
+        // Issue #1013: the vision slot can name a DIFFERENT provider, and its
+        // credential is what actually pays for the page images. Reporting only
+        // the assistant pair would tell the operator the wrong account serves
+        // the images (and hide a vision outage behind a healthy text row).
+        if config.vision_provider == Some(provider)
+            && let Some(vision_model) = config.vision_model.as_deref()
+        {
+            // `vision_vault_key_id` is optional on the wire only for replay of
+            // pre-#1013 views; the aggregate validates the triple, so a missing
+            // key falls back to the primary binding rather than "unconfigured".
+            let key = config
+                .vision_vault_key_id
+                .as_deref()
+                .unwrap_or(&config.vault_key_id);
+            push_binding(&mut bindings, vision_model, key);
+        }
     }
     bindings
 }

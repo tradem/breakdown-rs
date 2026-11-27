@@ -21,7 +21,7 @@ mod season;
 mod settings;
 mod shooting_day;
 
-pub use ai_config::{AiConfigRepositoryImpl, AiWorkerConfig};
+pub use ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerVisionConfig};
 pub use audit::AuditRepositoryImpl;
 pub use block::BlockRepositoryImpl;
 pub use character::CharacterRepositoryImpl;

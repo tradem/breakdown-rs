@@ -53,6 +53,8 @@ use common::*;
 const USER_A: &str = "ai-provider-health-user-a";
 const USER_B: &str = "ai-provider-health-user-b";
 const MODEL: &str = "mistral-large-3";
+/// A page-image model curated for EURouter (issue #1013).
+const VISION_MODEL: &str = "qwen3-vl-30b-a3b";
 /// Two distinct binding references, so the isolation cases can prove WHICH one
 /// was read (the second belongs to the other user).
 const VAULT_KEY_A: &str = "settings-01890f47-3c4d-7b21-9c0e-2a5f8b6d1e33";
@@ -684,4 +686,49 @@ async fn a_local_provider_is_measured_without_any_stored_key() {
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].provider, LlmProvider::Ollama);
     assert_eq!(recorded[0].key, None);
+}
+
+/// Issue #1013: the vision slot can name the SAME provider with a different
+/// model (and its own credential). The health read must list it as a configured
+/// pair, otherwise the operator sees a healthy text row while the page-image
+/// model — the one that actually bills the images — is invisible.
+#[tokio::test]
+async fn the_configured_vision_model_appears_as_a_bound_pair() {
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    seed_own_credential(&ports, USER_A, VAULT_KEY_A, "sk-caller-a").await;
+    // Give the caller's config a vision slot on the SAME provider but with its
+    // own credential, which is the "split billing, one provider" shape.
+    {
+        let mut views = ports.ai_config_repo.views.lock().await;
+        let config = views
+            .values_mut()
+            .next()
+            .expect("the seeded config must exist");
+        config.vision_provider = Some(LlmProvider::EURouter);
+        config.vision_model = Some(VISION_MODEL.to_owned());
+        config.vision_vault_key_id = Some(VAULT_KEY_A.to_owned());
+    }
+    let state = state(ports.clone()).await;
+
+    let response = call(&state, USER_A, "eurouter", None)
+        .await
+        .expect("a credential-role member may read their provider health");
+    let (status, body) = body_json(response).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let models: Vec<&str> = body["breakers"]
+        .as_array()
+        .expect("breakers is an array")
+        .iter()
+        .filter_map(|row| row["model"].as_str())
+        .collect();
+    assert!(
+        models.contains(&MODEL),
+        "the assistant model must stay listed: {models:?}"
+    );
+    assert!(
+        models.contains(&VISION_MODEL),
+        "the vision model must be listed as a configured pair (issue #1013): {models:?}"
+    );
 }

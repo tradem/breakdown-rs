@@ -17,6 +17,29 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.93.0] - Unreleased
+### Changed (issue #1013)
+
+- `AiWorkerConfig` gained `vision: Option<AiWorkerVisionConfig>` — the
+  provider/model/credential that carries PAGE IMAGES, resolved all-or-nothing
+  in `find_worker_config`. A partially-set projection row degrades to `None`
+  with a warning, i.e. the assistant-pair fallback, never a half-configured
+  page client.
+- `ScheduleImportWorker` gained `vision: Option<ScheduleVision>` and the
+  page-streaming path now sends its pages to the VISION pair: the transport
+  (`Arc<dyn LlmClient>`, because the vision provider can have a different
+  concrete client type), the `(provider, model)` breaker gate, the trial token,
+  the billed-call ledger attribution and the request's `zdr_attested` all follow
+  that pair. The flat-text path keeps the assistant pair unchanged.
+- The config's `reasoning_effort` is NOT forwarded to a distinct vision pair:
+  it was validated against the assistant model, so the page call defers to the
+  vision provider's own default instead of risking a `400`.
+- `compute_cost_snapshot` now takes this attempt's requests ALREADY attributed
+  to the pair that billed them (`&[BilledCall]`), so one schedule attempt can
+  span two rate cards — pages priced from the vision row, flat text from the
+  assistant row. An unpriced vision pair degrades the extraction component to
+  `unknown` instead of borrowing the assistant price.
+
 ## [0.92.0] - Unreleased
 ### Changed (issue #1013)
 

@@ -44,6 +44,13 @@ struct BreakerQueue {
     failures: std::sync::atomic::AtomicU32,
     /// How many failures it takes to open (the fake's own threshold).
     opens_after: u32,
+    /// Per-`(provider, model)` state (issue #1013). Empty in the single-pair
+    /// tests, which keep using `state`; a test that seeds it gets the real
+    /// Postgres adapter's keying, which is what breaker ISOLATION between two
+    /// pairs means.
+    pairs: std::sync::Mutex<
+        std::collections::HashMap<(LlmProvider, String), (ProviderBreakerState, u32)>,
+    >,
 }
 
 impl BreakerQueue {
@@ -54,6 +61,7 @@ impl BreakerQueue {
             recorded: std::sync::Mutex::new(Vec::new()),
             failures: std::sync::atomic::AtomicU32::new(0),
             opens_after: u32::MAX,
+            pairs: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -64,6 +72,7 @@ impl BreakerQueue {
             recorded: std::sync::Mutex::new(Vec::new()),
             failures: std::sync::atomic::AtomicU32::new(0),
             opens_after: u32::MAX,
+            pairs: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -163,6 +172,48 @@ impl AiImportQueue for BreakerQueue {
     ) -> Result<breakdown_core::ai::BreakerDecision, DomainError> {
         use breakdown_core::ai::{BreakerDecision, ProviderOutcome};
         use std::sync::atomic::Ordering;
+        // Pair-keyed mode (issue #1013): the real adapter keeps one breaker per
+        // `(provider, model)`, and a vision-pair failure must not touch the
+        // assistant pair's row.
+        if !self.pairs.lock().unwrap().is_empty() {
+            let mut pairs = self.pairs.lock().unwrap();
+            let entry = pairs
+                .entry((_provider, _model.to_owned()))
+                .or_insert((ProviderBreakerState::Closed, 0));
+            let consecutive_failures = match outcome {
+                ProviderOutcome::RetryableFailure { .. } => {
+                    entry.1 += 1;
+                    if entry.1 >= _threshold {
+                        entry.0 = ProviderBreakerState::Open;
+                    }
+                    entry.1
+                }
+                ProviderOutcome::Success => {
+                    entry.1 = 0;
+                    entry.0 = ProviderBreakerState::Closed;
+                    0
+                }
+                ProviderOutcome::PermanentFailure => entry.1,
+            };
+            let state = entry.0;
+            self.recorded.lock().unwrap().push((
+                if matches!(state, ProviderBreakerState::Open) {
+                    "failure"
+                } else {
+                    "success"
+                },
+                matches!(state, ProviderBreakerState::Open),
+            ));
+            return Ok(BreakerDecision {
+                trial_due: false,
+                state,
+                consecutive_failures,
+                flap_count: 0,
+                retry_at: None,
+                opened: matches!(state, ProviderBreakerState::Open),
+                closed: matches!(state, ProviderBreakerState::Closed),
+            });
+        }
         // One counter, incremented on a retryable failure and reset on a success,
         // and no lock is ever held while another is acquired.
         let consecutive_failures = match outcome {
@@ -204,6 +255,22 @@ impl AiImportQueue for BreakerQueue {
     ) -> Result<ProviderBreakerSnapshot, DomainError> {
         if self.fail_reads {
             return Err(DomainError::service_unavailable("database pool timed out"));
+        }
+        // Pair-keyed mode (issue #1013): an unseeded pair is closed, exactly
+        // like a provider that has never failed.
+        if !self.pairs.lock().unwrap().is_empty() {
+            let pairs = self.pairs.lock().unwrap();
+            let (state, failures) = pairs
+                .get(&(_provider, _model.to_owned()))
+                .copied()
+                .unwrap_or((ProviderBreakerState::Closed, 0));
+            return Ok(ProviderBreakerSnapshot {
+                trial_job: None,
+                state,
+                consecutive_failures: failures,
+                flap_count: 0,
+                retry_at: None,
+            });
         }
         Ok(ProviderBreakerSnapshot {
             trial_job: None,
@@ -719,6 +786,7 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
         fail_reads: false,
         recorded: std::sync::Mutex::new(Vec::new()),
         failures: std::sync::atomic::AtomicU32::new(0),
+        pairs: std::sync::Mutex::new(std::collections::HashMap::new()),
         opens_after: 1,
     });
     let gate = ProviderGate {
@@ -764,6 +832,7 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
         fail_reads: false,
         recorded: std::sync::Mutex::new(Vec::new()),
         failures: std::sync::atomic::AtomicU32::new(0),
+        pairs: std::sync::Mutex::new(std::collections::HashMap::new()),
         opens_after: 2, // the SECOND failure opens it
     });
     let gate = ProviderGate {
@@ -989,4 +1058,89 @@ async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_br
         domain,
         DomainError::LlmProviderQuotaExhausted { .. }
     ));
+}
+
+/// Acceptance criterion 4 of issue #1013: breaker state is keyed
+/// `(provider, model)`, so a failing VISION pair blocks only itself while the
+/// assistant pair stays admitted — and the other way round.
+///
+/// This is the property the schedule worker's page loop relies on: it binds its
+/// `ProviderGate` to the PAGE pair, so a page outage can never hold the flat
+/// text path (and a text outage can never stop page images).
+#[tokio::test(start_paused = true)]
+async fn a_failing_vision_pair_does_not_close_the_assistant_pair() {
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    {
+        // Seed both pairs as closed: an empty map means "use the single-state
+        // mode", so both pairs must be present.
+        let mut pairs = queue.pairs.lock().unwrap();
+        pairs.insert(
+            (LlmProvider::Ovhcloud, "qwen3-vl-30b-a3b".to_owned()),
+            (ProviderBreakerState::Closed, 0),
+        );
+        pairs.insert(
+            (LlmProvider::Neuralwatt, "deepseek-v4-flash".to_owned()),
+            (ProviderBreakerState::Closed, 0),
+        );
+    }
+    let vision_gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::Ovhcloud,
+        model: "qwen3-vl-30b-a3b",
+        threshold: 1,
+        enabled: true,
+        trial: false,
+    };
+    let text_gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash",
+        threshold: 1,
+        enabled: true,
+        trial: false,
+    };
+    assert!(vision_gate.admits().await, "the vision pair starts closed");
+    assert!(text_gate.admits().await, "the text pair starts closed");
+
+    // One retryable vision failure reaches the threshold of 1.
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
+    let _: Result<(), CallFailure> = retry_bounded(
+        || async { Err::<(), _>(transient()) },
+        0,
+        &vision_gate,
+        &mut billed,
+    )
+    .await;
+
+    assert!(
+        !vision_gate.admits().await,
+        "the failing vision pair must be blocked"
+    );
+    assert!(
+        text_gate.admits().await,
+        "the assistant pair must stay admitted — breaker state is per (provider, model)"
+    );
+
+    // …and the reverse direction: a text failure leaves the (already open)
+    // vision pair's row untouched and blocks only the text pair.
+    let _: Result<(), CallFailure> = retry_bounded(
+        || async { Err::<(), _>(transient()) },
+        0,
+        &text_gate,
+        &mut billed,
+    )
+    .await;
+    assert!(
+        !text_gate.admits().await,
+        "the failing text pair must be blocked"
+    );
+    let pairs = queue.pairs.lock().unwrap();
+    assert_eq!(
+        pairs[&(LlmProvider::Ovhcloud, "qwen3-vl-30b-a3b".to_owned())].0,
+        ProviderBreakerState::Open
+    );
+    assert_eq!(
+        pairs[&(LlmProvider::Neuralwatt, "deepseek-v4-flash".to_owned())].0,
+        ProviderBreakerState::Open
+    );
 }
