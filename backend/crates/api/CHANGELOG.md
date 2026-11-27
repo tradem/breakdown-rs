@@ -18,6 +18,31 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.74.0] - Unreleased
+### Added (issue #1013)
+
+- `CreateAiConfigRequest` / `UpdateAiConfigRequest` gained the **Vision slot**
+  (`vision_provider`, `vision_model`, `vision_vault_key_id`,
+  `vision_zdr_attested`); the update side is tri-state via
+  `deserialize_optional_nullable`, so an explicit `null` clears a configured
+  slot and an omitted field keeps it. `AiConfigView` returns the slot.
+- API-edge credential pre-check for the vision key: same-key reuse is allowed
+  only within one provider (409 `ai-config.provider-mismatch`), a distinct key
+  must be an owned, active credential of the vision provider (403
+  `ai-config.vault-key-forbidden`). `validate_decision_vault_key` and the new
+  `validate_vision_vault_key` now share one `validate_secondary_vault_key`
+  body, so the two slots cannot drift.
+- Five new problem codes with `de`/`en` Fluent texts:
+  `ai-config.vision-incomplete`, `ai-config.vision-provider-unsupported`,
+  `ai-config.vision-model-empty`, `ai-config.vision-vault-key-empty`,
+  `ai-config.vision-vault-key-mismatch`.
+- `openapi.yaml` regenerated; `CLIENT_VERSION` bumped 1.11.0 → 1.12.0 and the
+  Dart client regenerated, including the tri-state serializer workaround for
+  the three vision slot fields.
+- Both config-write log lines carry the vision provider/model/key-binding, so
+  "did my vision pair reach the backend?" is greppable like the decision triple
+  (issue #769).
+
 ## [0.73.0] - Unreleased
 ### Added (issue #968)
 

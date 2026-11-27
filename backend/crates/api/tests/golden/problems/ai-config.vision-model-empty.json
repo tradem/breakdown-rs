@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vision-model-empty",
+  "detail": "Das Vision-Modell darf nicht leer sein.",
+  "status": 422,
+  "title": "Vision model must not be empty",
+  "type": "https://docs.breakdown.example/problems/ai-config.vision-model-empty"
+}

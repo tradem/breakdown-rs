@@ -43,6 +43,23 @@ pub enum AiConfigEvent {
         /// The vault key reference of the decision provider credential.
         #[serde(default)]
         decision_vault_key_id: Option<String>,
+        /// Optional Vision slot (issue #1013): the provider hosting the
+        /// page-image (VLM) model, the model ID and the vaulted credential
+        /// binding. `#[serde(default)]` keeps pre-#1013 events replayable:
+        /// they deserialize to "no vision slot", i.e. the assistant pair.
+        #[serde(default)]
+        vision_provider: Option<LlmProvider>,
+        /// The vision model ID (e.g. `qwen3-vl-30b-a3b`).
+        #[serde(default)]
+        vision_model: Option<String>,
+        /// The vault key reference of the vision provider credential: same-key
+        /// reuse is permitted only within one provider account.
+        #[serde(default)]
+        vision_vault_key_id: Option<String>,
+        /// Operator attestation that the VISION provider account has zero data
+        /// retention enabled (issue #1013, #968 semantics).
+        #[serde(default)]
+        vision_zdr_attested: bool,
         /// Requested `reasoning_effort` (2026-11-20 investigation).
         /// `#[serde(default)]` keeps older events replayable: they deserialize
         /// to `Auto`, i.e. the behaviour those configurations ran with.
@@ -79,6 +96,20 @@ pub enum AiConfigEvent {
         /// See [`AiConfigEvent::Created::decision_vault_key_id`].
         #[serde(default)]
         decision_vault_key_id: Option<String>,
+        /// The RESOLVED vision slot after the update (issue #1013), so replay
+        /// and the projector simply assign it — `None`/`None`/`None` is the
+        /// cleared slot, not "untouched".
+        #[serde(default)]
+        vision_provider: Option<LlmProvider>,
+        /// See [`AiConfigEvent::Created::vision_model`].
+        #[serde(default)]
+        vision_model: Option<String>,
+        /// See [`AiConfigEvent::Created::vision_vault_key_id`].
+        #[serde(default)]
+        vision_vault_key_id: Option<String>,
+        /// The RESOLVED vision attestation after the update (issue #1013).
+        #[serde(default)]
+        vision_zdr_attested: bool,
         /// The RESOLVED choice after the update, so replay and the projector
         /// simply assign it.
         #[serde(default)]

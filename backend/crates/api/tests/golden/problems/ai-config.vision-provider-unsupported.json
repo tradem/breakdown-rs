@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vision-provider-unsupported",
+  "detail": "Dieser Anbieter darf keine Seitenbilder erhalten. Für den Bildpfad ist ein Anbieter mit Null-Aufbewahrung, ohne Training auf Eingaben und mit EU-Datenhaltung nötig — der Import verweigert das Speichern, damit kein bezahlter Seitenaufruf scheitert.",
+  "status": 422,
+  "title": "Vision provider cannot carry page images",
+  "type": "https://docs.breakdown.example/problems/ai-config.vision-provider-unsupported"
+}

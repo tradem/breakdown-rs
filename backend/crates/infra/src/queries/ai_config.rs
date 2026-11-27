@@ -176,6 +176,8 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             SELECT id, user_id, provider, assistant_model, image_model,
                    prompts, vault_key_id, cost_display_preference,
                    decision_provider, decision_model, decision_vault_key_id,
+                   vision_provider, vision_model, vision_vault_key_id,
+                   vision_zdr_attested,
                    reasoning_effort, zdr_attested,
                    revoked, version
             FROM ai_import.projection_ai_config
@@ -214,6 +216,8 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             SELECT id, user_id, provider, assistant_model, image_model,
                    prompts, vault_key_id, cost_display_preference,
                    decision_provider, decision_model, decision_vault_key_id,
+                   vision_provider, vision_model, vision_vault_key_id,
+                   vision_zdr_attested,
                    reasoning_effort, zdr_attested,
                    revoked, version
             FROM ai_import.projection_ai_config
@@ -280,6 +284,19 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         decision_vault_key_id: row
             .try_get::<Option<String>, _>("decision_vault_key_id")
             .map_err(map_sqlx_error)?,
+        // Vision slot (issue #1013): NULL/NULL/NULL + FALSE is "use the
+        // assistant pair", the state of every configuration written before
+        // the slot existed.
+        vision_provider: parse_optional_vision_provider(row)?,
+        vision_model: row
+            .try_get::<Option<String>, _>("vision_model")
+            .map_err(map_sqlx_error)?,
+        vision_vault_key_id: row
+            .try_get::<Option<String>, _>("vision_vault_key_id")
+            .map_err(map_sqlx_error)?,
+        vision_zdr_attested: row
+            .try_get::<bool, _>("vision_zdr_attested")
+            .map_err(map_sqlx_error)?,
         reasoning_effort: parse_optional_reasoning_effort(
             row.try_get::<Option<String>, _>("reasoning_effort")
                 .map_err(map_sqlx_error)?,
@@ -314,6 +331,26 @@ fn parse_optional_decision_provider(row: &PgRow) -> Result<Option<LlmProvider>, 
             Err(_) => {
                 tracing::warn!(
                     "ai config projection: unknown decision provider '{value}'; reporting none"
+                );
+                None
+            }
+        },
+    })
+}
+
+/// Parse the optional `vision_provider` projection column (issue #1013).
+/// An unknown value degrades to `None` with a warning instead of failing the
+/// read — a vision slot must never 500 a config fetch (the worker then falls
+/// back to the assistant pair, which is the documented `None` contract).
+fn parse_optional_vision_provider(row: &PgRow) -> Result<Option<LlmProvider>, DomainError> {
+    let raw: Option<String> = row.try_get("vision_provider").map_err(map_sqlx_error)?;
+    Ok(match raw.as_deref() {
+        None => None,
+        Some(value) => match parse_provider(value.to_owned()) {
+            Ok(provider) => Some(provider),
+            Err(_) => {
+                tracing::warn!(
+                    "ai config projection: unknown vision provider '{value}'; reporting none"
                 );
                 None
             }

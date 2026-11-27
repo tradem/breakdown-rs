@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 115;
+const PROBLEM_CODE_COUNT: usize = 120;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -954,6 +954,53 @@ problem_codes! {
         code: "ai-config.decision-vault-key-empty",
         status: 422,
         title: "Decision vault key reference must not be empty",
+        extensions: &[],
+    },
+
+    /// 422 — the vision slot (issue #1013) is only partially set: provider,
+    /// model and vault key must be set together or not at all, exactly like
+    /// the decision triple.
+    AI_CONFIG_VISION_INCOMPLETE {
+        code: "ai-config.vision-incomplete",
+        status: 422,
+        title: "Vision configuration incomplete",
+        extensions: &[],
+    },
+
+    /// 422 — the configured vision provider cannot carry page images
+    /// (issue #1013, ADR-041 `D2`). Refused at save time so the operator
+    /// learns it before a paid page call, not after it.
+    AI_CONFIG_VISION_PROVIDER_UNSUPPORTED {
+        code: "ai-config.vision-provider-unsupported",
+        status: 422,
+        title: "Vision provider cannot carry page images",
+        extensions: &[],
+    },
+
+    /// 422 — the vision model ID (issue #1013) is empty.
+    AI_CONFIG_VISION_MODEL_EMPTY {
+        code: "ai-config.vision-model-empty",
+        status: 422,
+        title: "Vision model must not be empty",
+        extensions: &[],
+    },
+
+    /// 422 — the vision vault key reference (issue #1013) is empty.
+    AI_CONFIG_VISION_VAULT_KEY_EMPTY {
+        code: "ai-config.vision-vault-key-empty",
+        status: 422,
+        title: "Vision vault key reference must not be empty",
+        extensions: &[],
+    },
+
+    /// 422 — the vision slot reuses the extraction vault key for a DIFFERENT
+    /// provider (issue #1013). Same-key reuse is legitimate only within one
+    /// provider account; anything else would authenticate a client built for
+    /// another endpoint.
+    AI_CONFIG_VISION_VAULT_KEY_MISMATCH {
+        code: "ai-config.vision-vault-key-mismatch",
+        status: 422,
+        title: "Vision vault key cannot be reused across providers",
         extensions: &[],
     },
 

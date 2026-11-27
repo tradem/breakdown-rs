@@ -82,7 +82,7 @@ echo "  gen  : openapi-generator-cli (JAR ${GENERATOR_VERSION} from openapitools
 # regenerated away and fail the CI drift check. Bump it (MINOR for additive
 # wire fields, MAJOR for a breaking contract) in the same commit that changes
 # `openapi.yaml`, so two client builds stay tellable apart.
-CLIENT_VERSION="1.11.0"
+CLIENT_VERSION="1.12.0"
 
 # Clean the previous output so removed operations/models disappear from the tree.
 rm -rf "${OUT}"
@@ -155,14 +155,16 @@ PY
 
 # Work around an openapi-generator 7.25.0 `dart-dio` template limitation: the
 # backend's tri-state PATCH fields (`UpdateAiConfigRequest.decision_provider` /
-# `decision_model` / `decision_vault_key_id`, issue #722) are declared as
+# `decision_model` / `decision_vault_key_id`, issue #722, plus the
+# `vision_provider` / `vision_model` / `vision_vault_key_id` slot from issue
+# #1013) are declared as
 # `Option<Option<T>>` on the wire (`oneOf [<T>, null]` in the schema): an
 # omitted field keeps the stored configuration, an explicit JSON `null` clears
 # it, a value replaces it. The generator flattens this to a plain `<T>?` Dart
 # getter and guards every serialize with `if (object.field != null)`, so the
 # generated client can never emit the explicit `null` and the client could not
 # clear a stored Decision Model. The serializer rewrite below drops the null
-# guards for EXACTLY these three fields so an unset field serializes as JSON
+# guards for EXACTLY these fields so an unset field serializes as JSON
 # `null` (explicit clear) — every call site must therefore always resolve the
 # effective decision state before building the request (the AI-config
 # controller does). Deterministic and idempotent (a no-op once upstream emits
@@ -175,6 +177,13 @@ TRI_STATE_FIELDS = {
     "decisionProvider": "decision_provider",
     "decisionModel": "decision_model",
     "decisionVaultKeyId": "decision_vault_key_id",
+    # Issue #1013: the Vision slot is tri-state for the same reason — an
+    # omitted field keeps the stored slot, an explicit `null` clears it, a
+    # value replaces it. Without the rewrite the generated client could never
+    # clear a configured vision pair.
+    "visionProvider": "vision_provider",
+    "visionModel": "vision_model",
+    "visionVaultKeyId": "vision_vault_key_id",
 }
 for getter, wire in TRI_STATE_FIELDS.items():
     # The generated block: a null guard wrapping the two yields. Replace it

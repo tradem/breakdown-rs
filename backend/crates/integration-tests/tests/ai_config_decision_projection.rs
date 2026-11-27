@@ -57,6 +57,9 @@ const DECISION_MODEL: &str = "clef-flash";
 /// `mistral-small-4` (`low|medium|high`), so it is the pair this test can store
 /// an explicit level on. `mistral-large-3` declares no such parameter.
 const EXTRACTION_MODEL: &str = "mistral-small-4";
+/// A curated OVHcloud page-image model (ADR-041 `D2.1`): OVHcloud declares all
+/// three egress guarantees, so the slot passes `validate_vision_config`.
+const VISION_MODEL: &str = "qwen3-vl-30b-a3b";
 
 fn test_user() -> UserId {
     UserId::from_sub(TEST_SUB)
@@ -225,6 +228,10 @@ fn update_cmd(
         decision_provider: None,
         decision_model: None,
         decision_vault_key_id: None,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: None,
         reasoning_effort: None,
         zdr_attested,
         version,
@@ -268,6 +275,10 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 // has to survive command -> event -> projection -> worker.
                 reasoning_effort: ReasoningEffortChoice::Low,
                 zdr_attested: false,
+                vision_provider: None,
+                vision_model: None,
+                vision_vault_key_id: None,
+                vision_zdr_attested: false,
             },
         )
         .await
@@ -295,6 +306,10 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 reasoning_effort: None,
                 version: created.1,
                 zdr_attested: None,
+                vision_provider: None,
+                vision_model: None,
+                vision_vault_key_id: None,
+                vision_zdr_attested: None,
             },
         )
         .await
@@ -396,6 +411,10 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
                 decision_vault_key_id: None,
                 reasoning_effort: ReasoningEffortChoice::Low,
                 zdr_attested: true,
+                vision_provider: None,
+                vision_model: None,
+                vision_vault_key_id: None,
+                vision_zdr_attested: false,
             },
         )
         .await
@@ -448,6 +467,136 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
         .expect("an explicit revocation must be stored");
     assert_eq!(revoked, AggregateVersion(reattested.0 + 1));
     assert_zdr_everywhere(&pool, config_id, revoked, false).await?;
+
+    Ok(())
+}
+
+/// Issue #1013: the Vision slot must survive the SAME end-to-end chain the
+/// Decision Model test pins — command → event → projector → projection →
+/// `AiConfigView` — and it must be CLEARABLE again.
+///
+/// The slot is what lets a Drehplan page be sent to a page-image model while the
+/// text chunks keep the (cheaper) assistant model; a silently dropped column
+/// would make the worker fall back to the assistant pair, i.e. exactly the
+/// defect the issue describes.
+#[tokio::test]
+async fn vision_slot_reaches_the_projection_and_the_read_view() -> Result<()> {
+    let (pool, _pg_guard) = fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra_guard) = fixtures::spawn_sierradb().await?;
+
+    let _projector = spawn_ai_config_projector(
+        pool.clone(),
+        std::sync::Arc::clone(&redis_client),
+        ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let commands = AiConfigCommandsImpl::new(CommandService::new(conn));
+
+    // 1) A config whose TEXT pair is EURouter and whose page-image pair is a
+    //    different, compliant provider with its own credential.
+    let config_id = Uuid::now_v7();
+    let created = commands
+        .create(
+            test_user(),
+            CreateAiConfig {
+                id: config_id,
+                user_id: test_user(),
+                provider: LlmProvider::EURouter,
+                assistant_model: EXTRACTION_MODEL.to_owned(),
+                image_model: None,
+                prompts: HashMap::from([(DocumentKind::Script, "script-prompt".to_owned())]),
+                vault_key_id: "extraction-key".to_owned(),
+                cost_display_preference: CostDisplayPreference::Token,
+                decision_provider: None,
+                decision_model: None,
+                decision_vault_key_id: None,
+                reasoning_effort: ReasoningEffortChoice::Auto,
+                zdr_attested: false,
+                vision_provider: Some(LlmProvider::Ovhcloud),
+                vision_model: Some(VISION_MODEL.to_owned()),
+                vision_vault_key_id: Some("vision-key".to_owned()),
+                vision_zdr_attested: false,
+            },
+        )
+        .await
+        .expect("create must append AiConfigCreated with the vision slot");
+    assert_eq!(created.1, AggregateVersion::INITIAL);
+
+    // 2) The projector writes all four columns.
+    await_projected_version(&pool, config_id, created.1).await?;
+    let projected: (Option<String>, Option<String>, Option<String>, bool) = sqlx::query_as(
+        "SELECT vision_provider, vision_model, vision_vault_key_id, vision_zdr_attested \
+         FROM ai_import.projection_ai_config WHERE id = $1",
+    )
+    .bind(config_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| anyhow!("vision slot read failed: {e}"))?;
+    assert_eq!(projected.0.as_deref(), Some("ovhcloud"));
+    assert_eq!(projected.1.as_deref(), Some(VISION_MODEL));
+    assert_eq!(projected.2.as_deref(), Some("vision-key"));
+    assert!(!projected.3);
+
+    // 3) The read view the client renders carries the same slot.
+    let read_view = AiConfigRepositoryImpl::new(pool.clone())
+        .find_by_id(config_id)
+        .await
+        .expect("the read model must serve the config");
+    assert_eq!(read_view.vision_provider, Some(LlmProvider::Ovhcloud));
+    assert_eq!(read_view.vision_model.as_deref(), Some(VISION_MODEL));
+    assert_eq!(read_view.vision_vault_key_id.as_deref(), Some("vision-key"));
+    assert!(!read_view.vision_zdr_attested);
+
+    // 4) `Some(None)` clears the slot — the import falls back to the assistant
+    //    pair, and the projection follows.
+    let cleared = commands
+        .update(
+            test_user(),
+            UpdateAiConfig {
+                id: config_id,
+                provider: LlmProvider::EURouter,
+                assistant_model: EXTRACTION_MODEL.to_owned(),
+                image_model: None,
+                prompts: HashMap::from([(DocumentKind::Script, "script-prompt".to_owned())]),
+                vault_key_id: "extraction-key".to_owned(),
+                cost_display_preference: None,
+                decision_provider: None,
+                decision_model: None,
+                decision_vault_key_id: None,
+                reasoning_effort: None,
+                zdr_attested: None,
+                vision_provider: Some(None),
+                vision_model: Some(None),
+                vision_vault_key_id: Some(None),
+                vision_zdr_attested: Some(false),
+                version: created.1,
+            },
+        )
+        .await
+        .expect("clearing the vision slot must append AiConfigUpdated");
+    await_projected_version(&pool, config_id, cleared).await?;
+    let cleared_row: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT vision_provider, vision_model, vision_vault_key_id \
+         FROM ai_import.projection_ai_config WHERE id = $1",
+    )
+    .bind(config_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| anyhow!("cleared vision slot read failed: {e}"))?;
+    assert_eq!(
+        cleared_row,
+        (None, None, None),
+        "an explicitly cleared vision slot must project as NULL/NULL/NULL"
+    );
+    let cleared_view = AiConfigRepositoryImpl::new(pool.clone())
+        .find_by_id(config_id)
+        .await
+        .expect("the read model must serve the cleared config");
+    assert_eq!(cleared_view.vision_provider, None);
+    assert_eq!(cleared_view.vision_model, None);
+    assert_eq!(cleared_view.vision_vault_key_id, None);
 
     Ok(())
 }

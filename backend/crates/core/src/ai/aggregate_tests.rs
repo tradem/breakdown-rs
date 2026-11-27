@@ -44,6 +44,10 @@ fn make_create_cmd() -> CreateAiConfig {
         reasoning_effort: ReasoningEffortChoice::Auto,
         cost_display_preference: CostDisplayPreference::Token,
         zdr_attested: false,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
     }
 }
 
@@ -61,6 +65,10 @@ fn make_update_cmd(id: Uuid, version: AggregateVersion) -> UpdateAiConfig {
         reasoning_effort: None,
         cost_display_preference: Some(CostDisplayPreference::Energy),
         zdr_attested: None,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: None,
         version,
     }
 }
@@ -79,6 +87,10 @@ fn created_event(cmd: &CreateAiConfig) -> AiConfigEvent {
         decision_vault_key_id: cmd.decision_vault_key_id.clone(),
         reasoning_effort: cmd.reasoning_effort,
         zdr_attested: cmd.zdr_attested,
+        vision_provider: cmd.vision_provider,
+        vision_model: cmd.vision_model.clone(),
+        vision_vault_key_id: cmd.vision_vault_key_id.clone(),
+        vision_zdr_attested: cmd.vision_zdr_attested,
         cost_display_preference: cmd.cost_display_preference,
         version: AggregateVersion::INITIAL,
     }
@@ -152,6 +164,10 @@ fn update_config_emits_single_updated_event() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -210,6 +226,10 @@ fn update_config_accepts_provider_replacement_with_new_vault_key() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -382,6 +402,10 @@ fn update_with_omitted_preference_keeps_the_current_value() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: None,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -411,6 +435,10 @@ fn applying_updated_without_preference_keeps_energy() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: None,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         },
         Metadata::default(),
@@ -591,6 +619,10 @@ fn update_config_resolves_tri_state_decision_slot() {
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
     // `Some(None)` on all three fields clears the resolved slot.
@@ -616,6 +648,10 @@ fn update_config_resolves_tri_state_decision_slot() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -748,6 +784,10 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -789,6 +829,10 @@ fn expected_updated(id: Uuid, effort: ReasoningEffortChoice) -> AiConfigEvent {
         decision_vault_key_id: None,
         reasoning_effort: effort,
         zdr_attested: Some(false),
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
         version: AggregateVersion::INITIAL.next(),
     }
 }
@@ -889,6 +933,10 @@ fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
         .when(UpdateAiConfig {
             vault_key_id: "key-123".into(),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
             ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
         })
         .then(vec![AiConfigEvent::Updated {
@@ -904,6 +952,10 @@ fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             zdr_attested: Some(true),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 
@@ -911,6 +963,10 @@ fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
     AiConfig::given(vec![created_event(&create_cmd)])
         .when(UpdateAiConfig {
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
             ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
         })
         .then(vec![AiConfigEvent::Updated {
@@ -926,6 +982,10 @@ fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -946,6 +1006,10 @@ fn the_zdr_attestation_does_not_survive_a_credential_change() {
         .when(UpdateAiConfig {
             vault_key_id: "key-456".into(),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
             ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
         })
         .then(vec![AiConfigEvent::Updated {
@@ -961,6 +1025,10 @@ fn the_zdr_attestation_does_not_survive_a_credential_change() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 
@@ -969,6 +1037,10 @@ fn the_zdr_attestation_does_not_survive_a_credential_change() {
         .when(UpdateAiConfig {
             vault_key_id: "key-456".into(),
             zdr_attested: Some(true),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
             ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
         })
         .then(vec![AiConfigEvent::Updated {
@@ -984,6 +1056,10 @@ fn the_zdr_attestation_does_not_survive_a_credential_change() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             zdr_attested: Some(true),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -1007,6 +1083,10 @@ fn update_resets_the_level_with_an_explicit_auto() {
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::High,
         zdr_attested: false,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     let update = UpdateAiConfig {
@@ -1030,6 +1110,10 @@ fn update_resets_the_level_with_an_explicit_auto() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -1056,6 +1140,10 @@ fn an_unchanged_stored_level_is_not_revalidated() {
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::Low,
         zdr_attested: false,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     let update = UpdateAiConfig {
@@ -1080,6 +1168,10 @@ fn an_unchanged_stored_level_is_not_revalidated() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Low,
             zdr_attested: Some(false),
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -1106,6 +1198,10 @@ fn a_provider_change_revalidates_an_unchanged_level() {
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::Minimal,
         zdr_attested: false,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     // Same model id, same level (omitted), but a different provider — a
@@ -1121,4 +1217,296 @@ fn a_provider_change_revalidates_an_unchanged_level() {
     AiConfig::given(vec![stored])
         .when(update)
         .then_error(AiConfigError::ReasoningEffortUnsupported);
+}
+
+// ===========================================================================
+// Issue #1013 — the Vision slot (provider/model/credential for PAGE IMAGES)
+// ===========================================================================
+
+/// A configuration whose ASSISTANT pair is text-only (`openai`/`gpt-4o`) and
+/// whose vision slot points at a compliant EU provider. This is the exact
+/// shape the issue exists for: the page call must be configurable
+/// independently of the text call.
+fn make_vision_cmd() -> CreateAiConfig {
+    CreateAiConfig {
+        vision_provider: Some(LlmProvider::Ovhcloud),
+        vision_model: Some("qwen3-vl-30b-a3b".into()),
+        vision_vault_key_id: Some("settings-abc:vision-key".into()),
+        vision_zdr_attested: false,
+        ..make_create_cmd()
+    }
+}
+
+#[test]
+fn create_config_accepts_a_compliant_vision_slot() {
+    let cmd = make_vision_cmd();
+    let expected = vec![created_event(&cmd)];
+    AiConfig::given(vec![]).when(cmd).then(expected);
+}
+
+#[test]
+fn create_config_accepts_vision_same_key_reuse_within_one_provider() {
+    // Same provider for text and images: reusing the extraction key is legal
+    // (the #722 same-key rule, applied to the vision slot).
+    let cmd = CreateAiConfig {
+        provider: LlmProvider::Ovhcloud,
+        vision_provider: Some(LlmProvider::Ovhcloud),
+        vision_model: Some("qwen3-vl-30b-a3b".into()),
+        vision_vault_key_id: Some("key-123".into()),
+        ..make_create_cmd()
+    };
+    let expected = vec![created_event(&cmd)];
+    AiConfig::given(vec![]).when(cmd).then(expected);
+}
+
+#[test]
+fn create_config_rejects_vision_same_key_reuse_across_providers() {
+    // `key-123` belongs to the OpenAI extraction binding; naming it for an
+    // OVHcloud vision client would authenticate against the wrong endpoint.
+    let cmd = CreateAiConfig {
+        vision_vault_key_id: Some("key-123".into()),
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::VisionVaultKeyMismatch);
+}
+
+#[test]
+fn create_config_rejects_a_non_compliant_vision_provider() {
+    // `openai` is a perfectly legal TEXT provider but cannot carry page images
+    // (ADR-041 D2): refused at save time, never on the first paid page.
+    let cmd = CreateAiConfig {
+        vision_provider: Some(LlmProvider::OpenAI),
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::VisionProviderUnsupported);
+}
+
+#[test]
+fn create_config_requires_the_attestation_for_an_account_zdr_provider() {
+    // Nebius declares EU residency + no training, but its ZDR is an account
+    // switch the code cannot observe — fail-closed until attested.
+    let unattested = CreateAiConfig {
+        vision_provider: Some(LlmProvider::Nebius),
+        vision_model: Some("Qwen/Qwen3.8-27B".into()),
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(unattested)
+        .then_error(AiConfigError::VisionProviderUnsupported);
+    // …and the attestation lifts exactly that one flag.
+    let attested = CreateAiConfig {
+        vision_provider: Some(LlmProvider::Nebius),
+        vision_model: Some("Qwen/Qwen3.8-27B".into()),
+        vision_zdr_attested: true,
+        ..make_vision_cmd()
+    };
+    let expected = vec![created_event(&attested)];
+    AiConfig::given(vec![]).when(attested).then(expected);
+}
+
+#[test]
+fn create_config_rejects_a_partial_vision_slot() {
+    // Provider without model/key.
+    let cmd = CreateAiConfig {
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::VisionProviderRequired);
+    // Model without provider.
+    let cmd = CreateAiConfig {
+        vision_provider: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::VisionProviderRequired);
+    // An attestation without a vision provider describes an account nothing
+    // uses — refused instead of stored.
+    let cmd = CreateAiConfig {
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: true,
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::VisionProviderRequired);
+}
+
+#[test]
+fn create_config_rejects_an_empty_vision_model_or_vault_key() {
+    let cmd = CreateAiConfig {
+        vision_model: Some("   ".into()),
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::EmptyVisionModel);
+    let cmd = CreateAiConfig {
+        vision_vault_key_id: Some("  ".into()),
+        ..make_vision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::EmptyVisionVaultKey);
+}
+
+#[test]
+fn update_config_resolves_the_tri_state_vision_slot() {
+    let cmd = make_vision_cmd();
+    let id = cmd.id;
+    // Omitted vision fields keep the stored slot; the emitted Updated event
+    // carries the RESOLVED slot (mirroring the decision triple).
+    let kept = UpdateAiConfig {
+        assistant_model: "gpt-4o-mini".into(),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(kept.clone())
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: kept.provider,
+            assistant_model: kept.assistant_model.clone(),
+            image_model: kept.image_model.clone(),
+            prompts: kept.prompts.clone(),
+            vault_key_id: kept.vault_key_id.clone(),
+            cost_display_preference: kept.cost_display_preference,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            vision_provider: Some(LlmProvider::Ovhcloud),
+            vision_model: Some("qwen3-vl-30b-a3b".into()),
+            vision_vault_key_id: Some("settings-abc:vision-key".into()),
+            vision_zdr_attested: false,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+    // `Some(None)` on all three fields clears the resolved slot — the import
+    // falls back to the assistant pair, exactly as before the slot existed.
+    let clear = UpdateAiConfig {
+        vision_provider: Some(None),
+        vision_model: Some(None),
+        vision_vault_key_id: Some(None),
+        vision_zdr_attested: Some(false),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(clear.clone())
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: clear.provider,
+            assistant_model: clear.assistant_model.clone(),
+            image_model: clear.image_model.clone(),
+            prompts: clear.prompts.clone(),
+            vault_key_id: clear.vault_key_id.clone(),
+            cost_display_preference: clear.cost_display_preference,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}
+
+#[test]
+fn update_config_drops_the_vision_attestation_when_the_credential_changes() {
+    // The attestation describes ONE account's `ZDR Mode`. Replacing the vision
+    // credential without re-asserting it resolves to `false` — and for a
+    // provider whose ZDR IS that switch, the resolved slot is then refused
+    // (fail-closed) instead of carrying a guarantee from a different account.
+    let cmd = CreateAiConfig {
+        vision_provider: Some(LlmProvider::Nebius),
+        vision_model: Some("Qwen/Qwen3.8-27B".into()),
+        vision_zdr_attested: true,
+        ..make_vision_cmd()
+    };
+    let id = cmd.id;
+    let replacement = UpdateAiConfig {
+        vision_vault_key_id: Some(Some("settings-abc:other-vision-key".into())),
+        vision_zdr_attested: None,
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(replacement)
+        .then_error(AiConfigError::VisionProviderUnsupported);
+    // Re-asserting the attestation in the same request carries it over.
+    let replacement = UpdateAiConfig {
+        vision_vault_key_id: Some(Some("settings-abc:other-vision-key".into())),
+        vision_zdr_attested: Some(true),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(replacement.clone())
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: replacement.provider,
+            assistant_model: replacement.assistant_model.clone(),
+            image_model: replacement.image_model.clone(),
+            prompts: replacement.prompts.clone(),
+            vault_key_id: replacement.vault_key_id.clone(),
+            cost_display_preference: replacement.cost_display_preference,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            vision_provider: Some(LlmProvider::Nebius),
+            vision_model: Some("Qwen/Qwen3.8-27B".into()),
+            vision_vault_key_id: Some("settings-abc:other-vision-key".into()),
+            vision_zdr_attested: true,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}
+
+#[test]
+fn pre_1013_events_replay_without_a_vision_slot() {
+    // A payload serialized before the vision fields existed deserializes to
+    // "no vision slot" + no attestation — the assistant-pair fallback, which
+    // is byte-identical to how those configurations behaved.
+    let payload = serde_json::json!({
+        "Created": {
+            "id": Uuid::now_v7(),
+            "user_id": "test-user",
+            "provider": "openai",
+            "assistant_model": "m",
+            "image_model": null,
+            "prompts": {},
+            "vault_key_id": "k",
+            "cost_display_preference": "token",
+            "version": 1
+        }
+    });
+    let event: AiConfigEvent = serde_json::from_value(payload).unwrap();
+    match event {
+        AiConfigEvent::Created {
+            vision_provider,
+            vision_model,
+            vision_vault_key_id,
+            vision_zdr_attested,
+            ..
+        } => {
+            assert_eq!(vision_provider, None);
+            assert_eq!(vision_model, None);
+            assert_eq!(vision_vault_key_id, None);
+            assert!(!vision_zdr_attested);
+        }
+        other => panic!("expected Created, got {other:?}"),
+    }
 }

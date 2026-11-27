@@ -32,6 +32,21 @@ generated notes are never used.
 
 ## [Unreleased]
 
+### Added
+
+- **AI import: a real vision slot (issue #1013, part 1/4).** The AI
+  configuration can now name the provider/model/credential that carries **page
+  images** (`vision_provider`, `vision_model`, `vision_vault_key_id`,
+  `vision_zdr_attested`), separately from the text assistant pair. Until now the
+  page-streaming schedule extractor rendered a page PNG and sent it to
+  `assistant_model`: a text-only assistant model made every Drehplan import fail
+  on its first paid page call, and a vision-capable one billed the 100+ text
+  chunks of a Drehbuch at image rates. `vision_* = None` keeps today's
+  behaviour byte-identically; a vision provider that cannot legally carry page
+  images is refused at **save** time (`422 ai-config.vision-provider-unsupported`)
+  instead of on the first page. The worker wiring follows in part 2/4.
+  Crate versions: `core` 0.81.0, `infra` 0.92.0, `api` 0.74.0.
+
 ### Changed
 
 - **AI catalogue rotation (issue #1007).** The curated assistant-LLM and

@@ -42,6 +42,10 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                vision_provider,
+                vision_model,
+                vision_vault_key_id,
+                vision_zdr_attested,
                 reasoning_effort,
                 zdr_attested,
                 version,
@@ -55,9 +59,12 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         (id, user_id, provider, assistant_model, image_model,
                          prompts, vault_key_id, cost_display_preference,
                          decision_provider, decision_model, decision_vault_key_id,
+                         vision_provider, vision_model, vision_vault_key_id,
+                         vision_zdr_attested,
                          reasoning_effort, zdr_attested,
                          revoked, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE, $14, $15, $16)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                            $12, $13, $14, $15, $16, $17, FALSE, $18, $19, $20)
                     ON CONFLICT (id) DO UPDATE SET
                         user_id = EXCLUDED.user_id,
                         provider = EXCLUDED.provider,
@@ -69,6 +76,10 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         decision_provider = EXCLUDED.decision_provider,
                         decision_model = EXCLUDED.decision_model,
                         decision_vault_key_id = EXCLUDED.decision_vault_key_id,
+                        vision_provider = EXCLUDED.vision_provider,
+                        vision_model = EXCLUDED.vision_model,
+                        vision_vault_key_id = EXCLUDED.vision_vault_key_id,
+                        vision_zdr_attested = EXCLUDED.vision_zdr_attested,
                         reasoning_effort = EXCLUDED.reasoning_effort,
                         zdr_attested = EXCLUDED.zdr_attested,
                         revoked = EXCLUDED.revoked,
@@ -91,6 +102,12 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(decision_provider.map(|p| p.as_str().to_owned()))
                 .bind(decision_model)
                 .bind(decision_vault_key_id)
+                // Vision slot (issue #1013): NULL/NULL/NULL + FALSE is the
+                // "use the assistant pair" state of every pre-#1013 event.
+                .bind(vision_provider.map(|p| p.as_str().to_owned()))
+                .bind(vision_model)
+                .bind(vision_vault_key_id)
+                .bind(vision_zdr_attested)
                 // NULL = `Auto` = "send no field", not "missing".
                 .bind(
                     reasoning_effort
@@ -121,6 +138,10 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                vision_provider,
+                vision_model,
+                vision_vault_key_id,
+                vision_zdr_attested,
                 reasoning_effort,
                 zdr_attested,
                 version,
@@ -136,11 +157,14 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         cost_display_preference = COALESCE($7, cost_display_preference),
                         decision_provider = $8, decision_model = $9,
                         decision_vault_key_id = $10,
-                        reasoning_effort = $11,
-                        zdr_attested = COALESCE($12, zdr_attested),
+                        vision_provider = $11, vision_model = $12,
+                        vision_vault_key_id = $13,
+                        vision_zdr_attested = $14,
+                        reasoning_effort = $15,
+                        zdr_attested = COALESCE($16, zdr_attested),
                         revoked = FALSE,
-                        version = $13, updated_at = $14
-                    WHERE id = $1 AND version < $13
+                        version = $17, updated_at = $18
+                    WHERE id = $1 AND version < $17
                     "#,
                 )
                 .bind(id)
@@ -162,6 +186,13 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(decision_provider.map(|p| p.as_str().to_owned()))
                 .bind(decision_model)
                 .bind(decision_vault_key_id)
+                // Vision slot (issue #1013): the aggregate emits the whole
+                // RESOLVED slot, so the projection assigns it (NULLs included —
+                // the slot was cleared).
+                .bind(vision_provider.map(|p| p.as_str().to_owned()))
+                .bind(vision_model)
+                .bind(vision_vault_key_id)
+                .bind(vision_zdr_attested)
                 // The aggregate emits the RESOLVED choice, so the projection
                 // assigns it directly — `Auto` nulls the column.
                 .bind(

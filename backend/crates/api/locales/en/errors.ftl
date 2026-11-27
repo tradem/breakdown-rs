@@ -57,6 +57,21 @@ problem-ai-config-decision-vault-key-empty =
 problem-ai-config-reasoning-effort-unsupported =
     The selected model does not support this reasoning effort. Choose another level or keep the provider default.
 
+problem-ai-config-vision-incomplete =
+    The vision configuration is incomplete — provider, model and credential must be set together (or all three left empty, in which case the import uses the assistant model).
+
+problem-ai-config-vision-provider-unsupported =
+    This provider may not receive page images. The image path requires a provider with zero data retention, no training on inputs and EU data residency — saving is refused here so that no paid page call fails later.
+
+problem-ai-config-vision-model-empty =
+    The vision model must not be empty.
+
+problem-ai-config-vision-vault-key-empty =
+    The vision model credential reference must not be empty.
+
+problem-ai-config-vision-vault-key-mismatch =
+    This credential belongs to a different provider. The assistant credential may only be reused for vision when both name the same provider.
+
 problem-ai-import-disabled =
     AI import is not enabled on this instance.
 

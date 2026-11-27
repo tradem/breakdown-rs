@@ -40,6 +40,14 @@ class _$AiConfigView extends AiConfigView {
   @override
   final int version;
   @override
+  final String? visionModel;
+  @override
+  final LlmProvider? visionProvider;
+  @override
+  final String? visionVaultKeyId;
+  @override
+  final bool? visionZdrAttested;
+  @override
   final bool? zdrAttested;
 
   factory _$AiConfigView([void Function(AiConfigViewBuilder)? updates]) =>
@@ -62,6 +70,10 @@ class _$AiConfigView extends AiConfigView {
       required this.userId,
       required this.vaultKeyId,
       required this.version,
+      this.visionModel,
+      this.visionProvider,
+      this.visionVaultKeyId,
+      this.visionZdrAttested,
       this.zdrAttested})
       : super._();
   @override
@@ -91,6 +103,10 @@ class _$AiConfigView extends AiConfigView {
         userId == other.userId &&
         vaultKeyId == other.vaultKeyId &&
         version == other.version &&
+        visionModel == other.visionModel &&
+        visionProvider == other.visionProvider &&
+        visionVaultKeyId == other.visionVaultKeyId &&
+        visionZdrAttested == other.visionZdrAttested &&
         zdrAttested == other.zdrAttested;
   }
 
@@ -113,6 +129,10 @@ class _$AiConfigView extends AiConfigView {
     _$hash = $jc(_$hash, userId.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
+    _$hash = $jc(_$hash, visionModel.hashCode);
+    _$hash = $jc(_$hash, visionProvider.hashCode);
+    _$hash = $jc(_$hash, visionVaultKeyId.hashCode);
+    _$hash = $jc(_$hash, visionZdrAttested.hashCode);
     _$hash = $jc(_$hash, zdrAttested.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -137,6 +157,10 @@ class _$AiConfigView extends AiConfigView {
           ..add('userId', userId)
           ..add('vaultKeyId', vaultKeyId)
           ..add('version', version)
+          ..add('visionModel', visionModel)
+          ..add('visionProvider', visionProvider)
+          ..add('visionVaultKeyId', visionVaultKeyId)
+          ..add('visionZdrAttested', visionZdrAttested)
           ..add('zdrAttested', zdrAttested))
         .toString();
   }
@@ -222,6 +246,25 @@ class AiConfigViewBuilder
   int? get version => _$this._version;
   set version(int? version) => _$this._version = version;
 
+  String? _visionModel;
+  String? get visionModel => _$this._visionModel;
+  set visionModel(String? visionModel) => _$this._visionModel = visionModel;
+
+  LlmProvider? _visionProvider;
+  LlmProvider? get visionProvider => _$this._visionProvider;
+  set visionProvider(LlmProvider? visionProvider) =>
+      _$this._visionProvider = visionProvider;
+
+  String? _visionVaultKeyId;
+  String? get visionVaultKeyId => _$this._visionVaultKeyId;
+  set visionVaultKeyId(String? visionVaultKeyId) =>
+      _$this._visionVaultKeyId = visionVaultKeyId;
+
+  bool? _visionZdrAttested;
+  bool? get visionZdrAttested => _$this._visionZdrAttested;
+  set visionZdrAttested(bool? visionZdrAttested) =>
+      _$this._visionZdrAttested = visionZdrAttested;
+
   bool? _zdrAttested;
   bool? get zdrAttested => _$this._zdrAttested;
   set zdrAttested(bool? zdrAttested) => _$this._zdrAttested = zdrAttested;
@@ -249,6 +292,10 @@ class AiConfigViewBuilder
       _userId = $v.userId;
       _vaultKeyId = $v.vaultKeyId;
       _version = $v.version;
+      _visionModel = $v.visionModel;
+      _visionProvider = $v.visionProvider;
+      _visionVaultKeyId = $v.visionVaultKeyId;
+      _visionZdrAttested = $v.visionZdrAttested;
       _zdrAttested = $v.zdrAttested;
       _$v = null;
     }
@@ -296,6 +343,10 @@ class AiConfigViewBuilder
                 vaultKeyId, r'AiConfigView', 'vaultKeyId'),
             version: BuiltValueNullFieldError.checkNotNull(
                 version, r'AiConfigView', 'version'),
+            visionModel: visionModel,
+            visionProvider: visionProvider,
+            visionVaultKeyId: visionVaultKeyId,
+            visionZdrAttested: visionZdrAttested,
             zdrAttested: zdrAttested,
           );
     } catch (_) {

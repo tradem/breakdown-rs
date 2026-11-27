@@ -514,6 +514,21 @@ pub struct AiConfigView {
     pub decision_model: Option<String>,
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
+    /// Optional Vision slot (issue #1013): the provider, model and vault key
+    /// that carry PAGE IMAGES. `None`/`None`/`None` means "use the assistant
+    /// pair", which is the behaviour of every configuration that predates the
+    /// slot. Additive with `serde(default)`.
+    #[serde(default)]
+    pub vision_provider: Option<LlmProvider>,
+    #[serde(default)]
+    pub vision_model: Option<String>,
+    #[serde(default)]
+    pub vision_vault_key_id: Option<String>,
+    /// The operator's zero-data-retention attestation for the VISION provider
+    /// account (issue #1013). Additive with `serde(default)`; separate from
+    /// `zdr_attested` because the vision provider can be a different account.
+    #[serde(default)]
+    pub vision_zdr_attested: bool,
     /// The configured `reasoning_effort` for the assistant model (2026-11-20
     /// investigation). `Auto` = no explicit level. Additive with `serde(default)`:
     /// a view serialized before the field existed deserializes as `Auto`.

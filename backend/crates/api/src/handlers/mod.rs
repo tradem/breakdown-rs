@@ -8279,6 +8279,28 @@ pub struct CreateAiConfigRequest {
     pub decision_model: Option<String>,
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
+    /// Optional Vision slot (issue #1013): the provider/model/credential that
+    /// carries PAGE IMAGES (page-streaming schedules and the VLM structural
+    /// zoning pass). Unset = "use the assistant pair", i.e. exactly the
+    /// behaviour of a configuration written before the slot existed.
+    ///
+    /// `vision_vault_key_id` MAY equal `vault_key_id` when `vision_provider ==
+    /// provider` (same-key reuse) or reference a distinct active credential of
+    /// the vision provider owned by the caller.
+    #[serde(default)]
+    pub vision_provider: Option<LlmProvider>,
+    #[serde(default)]
+    pub vision_model: Option<String>,
+    #[serde(default)]
+    pub vision_vault_key_id: Option<String>,
+    /// Operator attestation that the VISION provider ACCOUNT has zero data
+    /// retention enabled (issue #968 semantics, vision-scoped). Separate from
+    /// `zdr_attested` because it describes a different account as soon as the
+    /// vision provider differs from the extraction provider. A vision provider
+    /// that cannot carry page images is refused at save time (`422`
+    /// `ai-config.vision-provider-unsupported`), never on the first paid page.
+    #[serde(default)]
+    pub vision_zdr_attested: bool,
     /// Requested `reasoning_effort` for the assistant model (2026-11-20
     /// investigation). `auto` = no explicit level. Only a pair that DECLARES the
     /// parameter may name a level — the aggregate answers `422` otherwise, while
@@ -8316,6 +8338,23 @@ pub struct UpdateAiConfigRequest {
     pub decision_model: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     pub decision_vault_key_id: Option<Option<String>>,
+    /// Vision slot (issue #1013), tri-state like the decision slot: an omitted
+    /// field keeps the stored slot, `null` clears it, a value replaces it. The
+    /// aggregate resolves the three fields as a WHOLE before validating, so a
+    /// partial patch cannot persist half a slot.
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub vision_provider: Option<Option<LlmProvider>>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub vision_model: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub vision_vault_key_id: Option<Option<String>>,
+    /// Attestation for the vision provider account (issue #1013). Omitted keeps
+    /// the stored attestation **unless this request also replaces the vision
+    /// credential** — the attestation describes ONE account's `ZDR Mode`, so it
+    /// does not carry over to a different credential (the aggregate resolves it
+    /// to `false`; re-assert `true` in the same request to carry it over).
+    #[serde(default)]
+    pub vision_zdr_attested: Option<bool>,
     /// Omitted keeps the stored choice (an older client), `auto` resets it to the
     /// system default, a level replaces it. Deliberately not `Option<Option<..>>`:
     /// the generated Dart client omits `null` fields, so a reset would be
@@ -8423,17 +8462,64 @@ async fn validate_decision_vault_key<P: Ports>(
     extraction_provider: LlmProvider,
     caller: &UserId,
 ) -> Result<(), ApiError> {
+    validate_secondary_vault_key(
+        state,
+        decision_vault_key_id,
+        decision_provider,
+        extraction_vault_key_id,
+        extraction_provider,
+        caller,
+        "the decision vault key may only be shared with the extraction key within the same provider",
+    )
+    .await
+}
+
+/// Credential pre-check for the VISION slot (issue #1013), the same shape the
+/// Decision Model slot has had since #722: same-key reuse is legitimate only
+/// within one provider account, and a distinct key must be an active
+/// credential of the vision provider owned by the caller.
+async fn validate_vision_vault_key<P: Ports>(
+    state: &AppState<P>,
+    vision_vault_key_id: &str,
+    vision_provider: LlmProvider,
+    extraction_vault_key_id: &str,
+    extraction_provider: LlmProvider,
+    caller: &UserId,
+) -> Result<(), ApiError> {
+    validate_secondary_vault_key(
+        state,
+        vision_vault_key_id,
+        vision_provider,
+        extraction_vault_key_id,
+        extraction_provider,
+        caller,
+        "the vision vault key may only be shared with the extraction key within the same provider",
+    )
+    .await
+}
+
+/// Shared body of every SECONDARY credential-slot pre-check (Decision Model
+/// since #722, vision since #1013): same-key reuse inside one provider is
+/// allowed, a distinct key must be an owned, active credential of that slot's
+/// own provider.
+async fn validate_secondary_vault_key<P: Ports>(
+    state: &AppState<P>,
+    secondary_vault_key_id: &str,
+    secondary_provider: LlmProvider,
+    extraction_vault_key_id: &str,
+    extraction_provider: LlmProvider,
+    caller: &UserId,
+    mismatch_message: &'static str,
+) -> Result<(), ApiError> {
     // Same-key reuse is legitimate only within the same provider.
-    if decision_vault_key_id == extraction_vault_key_id {
-        if decision_provider == extraction_provider {
+    if secondary_vault_key_id == extraction_vault_key_id {
+        if secondary_provider == extraction_provider {
             return Ok(());
         }
-        return Err(ApiError::AiConfigProviderMismatch(
-            "the decision vault key may only be shared with the extraction key within the same provider",
-        ));
+        return Err(ApiError::AiConfigProviderMismatch(mismatch_message));
     }
-    // A distinct key: owned + active + bound to the DECISION provider.
-    validate_replacement_vault_key(state, decision_vault_key_id, decision_provider, caller).await
+    // A distinct key: owned + active + bound to the slot's own provider.
+    validate_replacement_vault_key(state, secondary_vault_key_id, secondary_provider, caller).await
 }
 
 /// Ownership denial on an AI-config vault key reference (issue #552) →
@@ -8560,6 +8646,23 @@ pub async fn create_ai_config<P: Ports>(
         )
         .await?;
     }
+    // Vision-slot credential pre-check (issue #1013): same-key reuse inside one
+    // provider or a distinct owned credential of the vision provider. Same
+    // fail-closed shape as the decision slot (#722) and #552.
+    if let (Some(vision_provider), Some(vision_vault_key_id)) = (
+        request.vision_provider,
+        request.vision_vault_key_id.as_deref(),
+    ) {
+        validate_vision_vault_key(
+            &state,
+            vision_vault_key_id,
+            vision_provider,
+            &request.vault_key_id,
+            request.provider,
+            &current_user.sub,
+        )
+        .await?;
+    }
     let id = Uuid::now_v7();
     // Acceptance: every successful config write leaves a greppable trace of the
     // decision triple's presence (issue #769). Computed *before* the command is
@@ -8572,6 +8675,14 @@ pub async fn create_ai_config<P: Ports>(
         None => "none",
     };
     let logged_decision_model = request.decision_model.clone();
+    // Same greppable trace for the vision slot (issue #1013): which provider
+    // and model actually serve page images, and whether its key is shared.
+    let vision_key_binding = match &request.vision_vault_key_id {
+        Some(key) if key == &request.vault_key_id => "shared",
+        Some(_) => "own",
+        None => "none",
+    };
+    let logged_vision_model = request.vision_model.clone();
     let (id, version) = state
         .ports
         .ai_config_commands()
@@ -8589,6 +8700,10 @@ pub async fn create_ai_config<P: Ports>(
                 decision_provider: request.decision_provider,
                 decision_model: request.decision_model,
                 decision_vault_key_id: request.decision_vault_key_id,
+                vision_provider: request.vision_provider,
+                vision_model: request.vision_model,
+                vision_vault_key_id: request.vision_vault_key_id,
+                vision_zdr_attested: request.vision_zdr_attested,
                 reasoning_effort: request.reasoning_effort,
                 zdr_attested: request.zdr_attested,
             },
@@ -8600,6 +8715,10 @@ pub async fn create_ai_config<P: Ports>(
         decision_provider = request.decision_provider.map(|p| p.as_str()).unwrap_or("none"),
         decision_model = logged_decision_model.as_deref().unwrap_or("none"),
         decision_key = %decision_key_binding,
+        vision_provider = request.vision_provider.map(|p| p.as_str()).unwrap_or("none"),
+        vision_model = logged_vision_model.as_deref().unwrap_or("none"),
+        vision_key = %vision_key_binding,
+        vision_zdr_attested = request.vision_zdr_attested,
         "ai_config created"
     );
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -8756,6 +8875,44 @@ pub async fn update_ai_config<P: Ports>(
         )
         .await?;
     }
+    // Vision-slot credential pre-check (issue #1013), resolved EFFECTIVE
+    // values like the decision slot above: the aggregate fills omitted
+    // tri-state fields from the STORED slot, so validating only a
+    // request-introduced pair would let a partial update persist a foreign or
+    // provider-mismatched key that the worker later fetches. The same-key
+    // exception depends on the extraction provider/key too.
+    let effective_vision_provider = request.vision_provider.unwrap_or(view.vision_provider);
+    let effective_vision_key = request
+        .vision_vault_key_id
+        .clone()
+        .unwrap_or_else(|| view.vision_vault_key_id.clone());
+    let effective_vision_model = request
+        .vision_model
+        .clone()
+        .unwrap_or_else(|| view.vision_model.clone());
+    let vision_binding_changed = effective_vision_provider != view.vision_provider
+        || effective_vision_key != view.vision_vault_key_id
+        || request.provider != view.provider
+        || request.vault_key_id != view.vault_key_id;
+    if vision_binding_changed
+        && let (Some(vision_provider), Some(vision_vault_key_id)) =
+            (effective_vision_provider, effective_vision_key.as_deref())
+    {
+        validate_vision_vault_key(
+            &state,
+            vision_vault_key_id,
+            vision_provider,
+            &request.vault_key_id,
+            request.provider,
+            &current_user.sub,
+        )
+        .await?;
+    }
+    let vision_key_binding = match &effective_vision_key {
+        Some(key) if key == &request.vault_key_id => "shared",
+        Some(_) => "own",
+        None => "none",
+    };
     // Optimistic lock: the request echoes the fetched config's `version`; a
     // stale version surfaces as the scoped `ai-config.version-mismatch` (409,
     // issue #481) instead of the generic `concurrency.version-mismatch`, so
@@ -8780,6 +8937,10 @@ pub async fn update_ai_config<P: Ports>(
                 decision_provider: request.decision_provider,
                 decision_model: request.decision_model,
                 decision_vault_key_id: request.decision_vault_key_id,
+                vision_provider: request.vision_provider,
+                vision_model: request.vision_model,
+                vision_vault_key_id: request.vision_vault_key_id,
+                vision_zdr_attested: request.vision_zdr_attested,
                 reasoning_effort: request.reasoning_effort,
                 zdr_attested: request.zdr_attested,
                 version: request.version,
@@ -8799,6 +8960,9 @@ pub async fn update_ai_config<P: Ports>(
         decision_provider = effective_decision_provider.map(|p| p.as_str()).unwrap_or("none"),
         decision_model = effective_decision_model.as_deref().unwrap_or("none"),
         decision_key = %decision_key_binding,
+        vision_provider = effective_vision_provider.map(|p| p.as_str()).unwrap_or("none"),
+        vision_model = effective_vision_model.as_deref().unwrap_or("none"),
+        vision_key = %vision_key_binding,
         "ai_config updated"
     );
     // Issue #871 (D-A2b layer 1): the breaker key of every queued job follows a

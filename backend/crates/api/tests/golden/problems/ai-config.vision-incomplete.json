@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vision-incomplete",
+  "detail": "Die Vision-Konfiguration ist unvollständig — Anbieter, Modell und Berechtigung müssen gemeinsam gesetzt werden (oder alle drei leer bleiben, dann nutzt der Import das Assistenten-Modell).",
+  "status": 422,
+  "title": "Vision configuration incomplete",
+  "type": "https://docs.breakdown.example/problems/ai-config.vision-incomplete"
+}

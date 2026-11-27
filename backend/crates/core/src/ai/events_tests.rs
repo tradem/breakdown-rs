@@ -120,6 +120,10 @@ fn an_explicit_level_round_trips_through_the_event_payload() {
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::Minimal,
         zdr_attested: false,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     let json = serde_json::to_string(&created).expect("the event serializes");
