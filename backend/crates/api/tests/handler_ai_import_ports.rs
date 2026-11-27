@@ -6630,13 +6630,20 @@ async fn update_ai_config_rejects_a_half_supplied_vision_credential() {
 /// ahead of the projection (stale read model) can resubmit an OLDER pair whose
 /// key was revoked since it was written — prior validation proves ownership and
 /// provider binding at introduction time, never current active state.
+///
+/// Each case populates ONLY the slot it exercises (review finding on the first
+/// version of this test): with both slots seeded and both bindings missing, the
+/// Decision check answered first and the Vision case passed even without its
+/// own version rule.
 #[tokio::test]
 async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
-    // (label, request version, body, expected problem code — `None` = accepted)
-    let cases: [(&str, u64, serde_json::Value, Option<&str>); 3] = [
+    // (label, request version, projected slot, body, expected problem code —
+    // `None` = accepted)
+    let cases: [(&str, u64, &str, serde_json::Value, Option<&str>); 3] = [
         (
             "vision, on the projected state (no lookup, prompt-only save)",
             2,
+            "vision",
             serde_json::json!({
                 "provider": "neuralwatt",
                 "assistant_model": "assistant-v2",
@@ -6653,6 +6660,7 @@ async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
         (
             "vision, ahead of the stale projection (revoked key re-checked)",
             3,
+            "vision",
             serde_json::json!({
                 "provider": "neuralwatt",
                 "assistant_model": "assistant-v2",
@@ -6669,6 +6677,7 @@ async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
         (
             "decision, ahead of the stale projection (revoked key re-checked)",
             3,
+            "decision",
             serde_json::json!({
                 "provider": "neuralwatt",
                 "assistant_model": "assistant-v2",
@@ -6684,7 +6693,7 @@ async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
         ),
     ];
 
-    for (label, request_version, raw, expected_code) in cases {
+    for (label, request_version, slot, raw, expected_code) in cases {
         let ports = FakePorts::default();
         ports
             .membership_repo
@@ -6694,36 +6703,42 @@ async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
             .settings_repo
             .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
             .await;
-        // The pair the projection still shows, REVOKED in the vault after it
+        // The pair the projection still shows is REVOKED in the vault after it
         // was written: re-storing it must not be accepted on the strength of
-        // "the projection says this is the current pair".
+        // "the projection says this is the current pair". Only the exercised
+        // slot's key is missing, so the assertion cannot be satisfied by the
+        // other slot's refusal.
+        let revoked_key = match slot {
+            "vision" => "projected-vision-key",
+            _ => "projected-decision-key",
+        };
         ports
             .settings_repo
             .by_vault_key
             .lock()
             .await
-            .remove("projected-vision-key");
-        ports
-            .settings_repo
-            .by_vault_key
-            .lock()
-            .await
-            .remove("projected-decision-key");
+            .remove(revoked_key);
         let commands = ports.ai_config_commands.clone();
         let repo = ports.ai_config_repo.clone();
         let state = state(ports);
 
-        // The read model is at version 2 and still shows the revoked pairs; the
+        // The read model is at version 2 and still shows the revoked pair; the
         // aggregate has moved on (the client holds its version from a PATCH
         // response, so it can be ahead of the projection).
         let mut view = config_view(TEST_SUB);
         view.version = AggregateVersion(2);
-        view.vision_provider = Some(LlmProvider::Ovhcloud);
-        view.vision_model = Some("qwen3-vl-30b-a3b".to_owned());
-        view.vision_vault_key_id = Some("projected-vision-key".to_owned());
-        view.decision_provider = Some(LlmProvider::EURouter);
-        view.decision_model = Some("clef-flash".to_owned());
-        view.decision_vault_key_id = Some("projected-decision-key".to_owned());
+        match slot {
+            "vision" => {
+                view.vision_provider = Some(LlmProvider::Ovhcloud);
+                view.vision_model = Some("qwen3-vl-30b-a3b".to_owned());
+                view.vision_vault_key_id = Some("projected-vision-key".to_owned());
+            }
+            _ => {
+                view.decision_provider = Some(LlmProvider::EURouter);
+                view.decision_model = Some("clef-flash".to_owned());
+                view.decision_vault_key_id = Some("projected-decision-key".to_owned());
+            }
+        }
         let id = view.id;
         repo.views.lock().await.insert(id, view);
 
