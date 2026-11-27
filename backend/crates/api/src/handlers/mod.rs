@@ -28,7 +28,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
 use breakdown_core::ai::{
-    AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
+    AiConfigCommands, AiConfigError, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue,
     AiImportTargetRequest, AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError,
     ApplyMapping, CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan,
@@ -8522,6 +8522,32 @@ async fn validate_secondary_vault_key<P: Ports>(
     validate_replacement_vault_key(state, secondary_vault_key_id, secondary_provider, caller).await
 }
 
+/// Fail-closed guard for a credential-SLOT key replacement that does NOT name
+/// the slot's own provider (issue #1013 review finding; the Decision slot has
+/// carried the same shape since #722).
+///
+/// The aggregate resolves an OMITTED tri-state slot field from its OWN state,
+/// which is the authoritative one. This edge can only resolve it from the
+/// read-model projection — and while the projector lags, `view.<slot>_provider`
+/// is still empty. The "effective" slot then looks incomplete, the
+/// ownership/provider-binding pre-check is SKIPPED, and the command persists a
+/// key that the aggregate pairs with its STORED provider: a foreign credential
+/// reference the worker later fetches (confused deputy, the #552 failure mode).
+/// Requiring the provider alongside a replaced key makes the pre-check
+/// independent of projection freshness — nothing is resolved from the read
+/// model for the field that decides the check.
+///
+/// `Some(None)` (an explicit `null` provider) is deliberately not covered here:
+/// clearing the provider while setting a key is a partially set slot, which the
+/// aggregate already refuses with the slot's `*-incomplete` code.
+fn slot_key_replaced_without_provider(
+    provider_omitted: bool,
+    requested_key: Option<&Option<String>>,
+    stored_key: Option<&str>,
+) -> bool {
+    provider_omitted && matches!(requested_key, Some(Some(key)) if Some(key.as_str()) != stored_key)
+}
+
 /// Ownership denial on an AI-config vault key reference (issue #552) →
 /// 403 `ai-config.vault-key-forbidden`. Distinct from `forbidden_ai_config()`
 /// (credential-role denial) and from the #528 provider-mismatch 409 so the
@@ -8855,6 +8881,21 @@ pub async fn update_ai_config<P: Ports>(
         Some(_) => "own",
         None => "none",
     };
+    // A Decision credential REPLACEMENT must name its provider — the same
+    // fail-closed rule the vision slot below needs (issue #1013 review
+    // finding), applied to the slot that has carried this shape since #722:
+    // with an omitted provider the aggregate would pair the new key with its
+    // STORED provider, while this edge — reading a possibly lagging projection
+    // — would see an incomplete slot and skip the ownership check entirely.
+    if slot_key_replaced_without_provider(
+        request.decision_provider.is_none(),
+        request.decision_vault_key_id.as_ref(),
+        view.decision_vault_key_id.as_deref(),
+    ) {
+        return Err(ApiError::from(DomainError::from(
+            AiConfigError::DecisionProviderRequired,
+        )));
+    }
     let binding_changed = effective_decision_provider != view.decision_provider
         || effective_decision_key != view.decision_vault_key_id
         || request.provider != view.provider
@@ -8890,6 +8931,21 @@ pub async fn update_ai_config<P: Ports>(
         .vision_model
         .clone()
         .unwrap_or_else(|| view.vision_model.clone());
+    // A Vision credential REPLACEMENT must name its vision provider (issue
+    // #1013 review finding): with an omitted provider the aggregate would pair
+    // the new key with its STORED provider, while this edge — reading a
+    // possibly lagging projection — would see an incomplete slot and skip the
+    // ownership check entirely, persisting a foreign credential reference that
+    // the page-image path may later use.
+    if slot_key_replaced_without_provider(
+        request.vision_provider.is_none(),
+        request.vision_vault_key_id.as_ref(),
+        view.vision_vault_key_id.as_deref(),
+    ) {
+        return Err(ApiError::from(DomainError::from(
+            AiConfigError::VisionProviderRequired,
+        )));
+    }
     let vision_binding_changed = effective_vision_provider != view.vision_provider
         || effective_vision_key != view.vision_vault_key_id
         || request.provider != view.provider

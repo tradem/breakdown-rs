@@ -6438,28 +6438,28 @@ async fn ai_config_persists_and_returns_the_vision_slot() {
 
     // (3) PATCH that OMITS the slot dispatches `None` (keep the stored slot) —
     // an older client editing the prompts must not clear the vision pair.
+    // Deserialized from RAW JSON, like the decision-slot tests above: a
+    // hand-built struct cannot notice that `deserialize_optional_nullable`
+    // folded "absent" into the clearing `Some(None)`, which would silently
+    // wipe the slot on every prompt-only save.
+    let raw = serde_json::json!({
+        "provider": "openai",
+        "assistant_model": "gpt-4o",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "text-vault-key",
+        "version": created.version.0
+    });
+    let request: UpdateAiConfigRequest = serde_json::from_value(raw)
+        .expect("omitted vision fields deserialize to the keeping outer None");
+    assert_eq!(request.vision_provider, None);
+    assert_eq!(request.vision_model, None);
+    assert_eq!(request.vision_vault_key_id, None);
     let (status, _) = update_ai_config::<FakePorts>(
         State(state.clone()),
         user(),
         Path(created.id),
-        Json(UpdateAiConfigRequest {
-            provider: LlmProvider::OpenAI,
-            assistant_model: "gpt-4o".to_owned(),
-            image_model: None,
-            prompts: HashMap::new(),
-            vault_key_id: "text-vault-key".to_owned(),
-            cost_display_preference: None,
-            decision_provider: None,
-            decision_model: None,
-            decision_vault_key_id: None,
-            reasoning_effort: None,
-            zdr_attested: None,
-            vision_provider: None,
-            vision_model: None,
-            vision_vault_key_id: None,
-            vision_zdr_attested: None,
-            version: created.version,
-        }),
+        Json(request),
     )
     .await
     .expect("owner may edit a config without touching the vision slot");
@@ -6476,32 +6476,31 @@ async fn ai_config_persists_and_returns_the_vision_slot() {
     }
 
     // (4) PATCH with an explicit `null` clears the slot (tri-state), so the
-    // import falls back to the assistant pair.
-    let (status, _) = update_ai_config::<FakePorts>(
-        State(state),
-        user(),
-        Path(created.id),
-        Json(UpdateAiConfigRequest {
-            provider: LlmProvider::OpenAI,
-            assistant_model: "gpt-4o".to_owned(),
-            image_model: None,
-            prompts: HashMap::new(),
-            vault_key_id: "text-vault-key".to_owned(),
-            cost_display_preference: None,
-            decision_provider: None,
-            decision_model: None,
-            decision_vault_key_id: None,
-            reasoning_effort: None,
-            zdr_attested: None,
-            vision_provider: Some(None),
-            vision_model: Some(None),
-            vision_vault_key_id: Some(None),
-            vision_zdr_attested: Some(false),
-            version: created.version,
-        }),
-    )
-    .await
-    .expect("owner may clear the vision slot");
+    // import falls back to the assistant pair. Raw JSON again: the clearing
+    // `Some(None)` must be REACHABLE through the wire shape a client actually
+    // sends, otherwise the slot can never be cleared.
+    let raw = serde_json::json!({
+        "provider": "openai",
+        "assistant_model": "gpt-4o",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "text-vault-key",
+        "vision_provider": null,
+        "vision_model": null,
+        "vision_vault_key_id": null,
+        "vision_zdr_attested": false,
+        "version": created.version.0
+    });
+    let request: UpdateAiConfigRequest =
+        serde_json::from_value(raw).expect("explicit nulls deserialize to the clearing Some(None)");
+    assert_eq!(request.vision_provider, Some(None));
+    assert_eq!(request.vision_model, Some(None));
+    assert_eq!(request.vision_vault_key_id, Some(None));
+    assert_eq!(request.vision_zdr_attested, Some(false));
+    let (status, _) =
+        update_ai_config::<FakePorts>(State(state), user(), Path(created.id), Json(request))
+            .await
+            .expect("owner may clear the vision slot");
     assert_eq!(status, StatusCode::OK);
     {
         let updated_commands = commands.updated.lock().await;
@@ -6513,6 +6512,71 @@ async fn ai_config_persists_and_returns_the_vision_slot() {
         assert_eq!(command.vision_vault_key_id, Some(None));
         assert_eq!(command.vision_zdr_attested, Some(false));
     }
+}
+
+/// Issue #1013 (review finding): a VISION credential replacement must name
+/// its vision provider. The aggregate resolves an omitted provider from its
+/// own state, so without this guard a client that sends ONLY a new
+/// `vision_vault_key_id` against a lagging projection (no vision slot in the
+/// read model yet) would pass the edge unchecked — the aggregate would pair
+/// the key with its stored provider and persist a credential reference the
+/// page-image path may later use (confused deputy, #552 shape).
+#[tokio::test]
+async fn update_ai_config_rejects_a_vision_key_replacement_without_its_provider() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    // The replacement key IS an owned, active OVHcloud credential — the
+    // rejection must come from the missing provider, never from ownership.
+    ports
+        .settings_repo
+        .bind_vault_key("fresh-vision-key", LlmProvider::Ovhcloud.as_str(), TEST_SUB)
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    let state = state(ports);
+
+    // The read model lags the aggregate: the stored config already HAS a
+    // vision slot, the projection still shows none (exactly the window the
+    // finding describes).
+    let mut view = config_view(TEST_SUB);
+    view.vision_provider = None;
+    view.vision_model = None;
+    view.vision_vault_key_id = None;
+    let id = view.id;
+    repo.views.lock().await.insert(id, view);
+
+    let raw = serde_json::json!({
+        "provider": "neuralwatt",
+        "assistant_model": "assistant-v2",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "vault-key",
+        "vision_vault_key_id": "fresh-vision-key",
+        "version": 1
+    });
+    let request: UpdateAiConfigRequest =
+        serde_json::from_value(raw).expect("a vision key without a vision provider deserializes");
+    assert_eq!(request.vision_provider, None, "provider omitted");
+    assert_eq!(
+        request.vision_vault_key_id,
+        Some(Some("fresh-vision-key".to_owned())),
+        "a NEW key is introduced"
+    );
+
+    let problem = update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+        .await
+        .expect_err("a vision key replacement must name its vision provider")
+        .into_problem();
+
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "ai-config.vision-incomplete");
+    assert!(
+        commands.updated.lock().await.is_empty(),
+        "the command must not be dispatched"
+    );
 }
 
 /// Issue #1013: same-key reuse is legal only within ONE provider account. A
