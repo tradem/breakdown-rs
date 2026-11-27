@@ -4,11 +4,11 @@
 
 //! Reasoning-effort vocabulary and capability tests.
 //!
-//! Every assertion here is a fact read from a provider catalogue on 2026-11-20
-//! (the eurouter rows re-read on 2026-11-21 for issue #950; see the module docs
-//! for the three shapes). The `curated_model_ids`
-//! cross-check that catches a *forgotten* model lives in `infra`, where both
-//! lists are visible.
+//! Every assertion here is a fact read from a provider catalogue on 2026-11-20,
+//! re-read on **2026-11-26** for issue #1007 (the eurouter rows were re-read on
+//! 2026-11-21 for issue #950; see the module docs for the three shapes). The
+//! `curated_model_ids` cross-check that catches a *forgotten* model lives in
+//! `infra`, where both lists are visible.
 
 use super::{
     ReasoningEffort, ReasoningEffortChoice, supported_reasoning_efforts, supports_reasoning_effort,
@@ -39,18 +39,18 @@ fn neuralwatt_offers_all_four_efforts_on_its_curated_models() {
     // including `minimal` on every curated Neuralwatt model.
     for model in [
         "deepseek-v4.1-flash",
-        "deepseek-v4-flash",
+        "deepseek-v4.1-flash-flex",
         "glm-5.3",
-        "glm-5.3-fast",
         "glm-5.3-flex",
         "glm-5.3-flash",
-        "glm-5.3-short",
-        "kimi-k3",
-        "kimi-k3-fast",
-        "kimi-k3-flex",
+        "glm-5.3-flash-flex",
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-flex",
         "qwen3.6-35b",
         "qwen3.6-35b-fast",
+        "qwen3.6-35b-flex",
         "qwen-3.8-27b",
+        "qwen-3.8-27b-flex",
     ] {
         assert_eq!(
             supported_reasoning_efforts(LlmProvider::Neuralwatt, model),
@@ -148,9 +148,139 @@ fn opencode_grok_offers_medium() {
     // `capabilities.reasoning.effort: ["low", "medium", "high", "xhigh"]`.
     assert!(supports_reasoning_effort(
         LlmProvider::OpenCode,
-        "grok-4.6",
+        "grok-4.7",
         ReasoningEffort::Medium
     ));
+    assert!(supports_reasoning_effort(
+        LlmProvider::OpenCodeGo,
+        "grok-4.7",
+        ReasoningEffort::Medium
+    ));
+}
+
+/// `deepseek-v4-pro` advertises `high` (plus the unmodelled `max`) and nothing
+/// else. Offering `low`/`medium` would be a `400` on every call — the exact
+/// failure mode the closed enum exists to prevent.
+#[test]
+fn both_opencode_endpoints_offer_only_high_for_deepseek_v4_pro() {
+    for provider in [LlmProvider::OpenCodeGo, LlmProvider::OpenCode] {
+        let efforts = supported_reasoning_efforts(provider, "deepseek-v4-pro")
+            .expect("deepseek-v4-pro declares an effort list");
+        assert_eq!(efforts, &[ReasoningEffort::High]);
+        assert!(supports_reasoning_effort(
+            provider,
+            "deepseek-v4-pro",
+            ReasoningEffort::High
+        ));
+        assert!(!supports_reasoning_effort(
+            provider,
+            "deepseek-v4-pro",
+            ReasoningEffort::Low
+        ));
+        assert!(!supports_reasoning_effort(
+            provider,
+            "deepseek-v4-pro",
+            ReasoningEffort::Medium
+        ));
+    }
+}
+
+/// The provider-specific difference issue #1007 exists for: the Go gateway
+/// advertises only the provider-only `max` for `kimi-k3`, while the OpenCode
+/// endpoint advertises `low|high|max` for the SAME model id. Neither may
+/// inherit the other's set.
+#[test]
+fn opencode_go_and_opencode_disagree_about_kimi_k3() {
+    assert_eq!(
+        supported_reasoning_efforts(LlmProvider::OpenCodeGo, "kimi-k3"),
+        None,
+        "the Go gateway exposes no representable effort for kimi-k3"
+    );
+    assert_eq!(
+        supported_reasoning_efforts(LlmProvider::OpenCode, "kimi-k3"),
+        Some(&[ReasoningEffort::Low, ReasoningEffort::High][..])
+    );
+}
+
+/// Curated models whose live metadata declares no representable effort (a
+/// provider-only `max`, an empty list, or no parameter at all). Never an empty
+/// `Some(&[])`, never a borrowed sibling set.
+#[test]
+fn curated_pairs_without_a_representable_effort_stay_unresolved() {
+    for (provider, model) in [
+        // Go: only the provider-only `max`.
+        (LlmProvider::OpenCodeGo, "kimi-k3"),
+        (LlmProvider::OpenCodeGo, "kimi-k2.7-code"),
+        (LlmProvider::OpenCodeGo, "minimax-m3"),
+        (LlmProvider::OpenCodeGo, "mimo-v2.6-pro"),
+        // OpenCode: no `mimo-v2.6-pro` arm here, `kimi-k3` IS offered above.
+        (LlmProvider::OpenCode, "kimi-k2.7-code"),
+        (LlmProvider::OpenCode, "minimax-m3"),
+        (LlmProvider::OpenCode, "minimax-m2.7"),
+    ] {
+        assert_eq!(
+            supported_reasoning_efforts(provider, model),
+            None,
+            "{provider:?}/{model} must expose no representable effort"
+        );
+    }
+}
+
+/// Issue #1007 rotated these out of curation; their mappings went with them so
+/// a stale id cannot silently keep an effort set nobody verified any more.
+#[test]
+fn rotated_out_neuralwatt_ids_are_no_longer_mapped() {
+    for model in [
+        "deepseek-v4-flash",
+        "glm-5.3-fast",
+        "glm-5.3-short",
+        "kimi-k3",
+        "kimi-k3-fast",
+        "kimi-k3-flex",
+    ] {
+        assert_eq!(
+            supported_reasoning_efforts(LlmProvider::Neuralwatt, model),
+            None,
+            "{model} left the Neuralwatt catalogue on 2026-11-26"
+        );
+    }
+}
+
+/// `openai/gpt-6-luna` joined OpenRouter's curated set with the same
+/// `supported_parameters` shape as its siblings.
+#[test]
+fn openrouter_gpt_6_luna_offers_low_medium_high() {
+    assert_eq!(
+        supported_reasoning_efforts(LlmProvider::OpenRouter, "openai/gpt-6-luna"),
+        Some(
+            &[
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High
+            ][..]
+        )
+    );
+}
+
+/// Eurouter's structured-output successor of the rotated-out
+/// `deepseek-v4-flash`.
+#[test]
+fn eurouter_deepseek_v4_1_flash_1017_offers_low_medium_high() {
+    assert_eq!(
+        supported_reasoning_efforts(LlmProvider::EURouter, "deepseek-v4.1-flash-1017"),
+        Some(
+            &[
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High
+            ][..]
+        )
+    );
+    // The rotated-out id it replaced stays unresolved rather than borrowing it.
+    assert_eq!(
+        supported_reasoning_efforts(LlmProvider::EURouter, "deepseek-v4-flash"),
+        None
+    );
 }
 
 #[test]

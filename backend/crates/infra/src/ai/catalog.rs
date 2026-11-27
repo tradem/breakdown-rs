@@ -231,6 +231,12 @@ fn map_redirect_violation(violation: RedirectViolation) -> DomainError {
 fn default_allowlist() -> HashSet<String> {
     [
         // --- current curated assistant models (issue #675 refresh) ---
+        // Issue #1007 (researched 2026-11-26): every newly curated id is added
+        // here, and no rotated-out id is ever removed — `default_allowlist` is
+        // the gate a persisted `AiConfig` still resolves through.
+        "gpt-6-luna",
+        "gpt-6.1-terra",
+        "openai/gpt-6-luna",
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-4.1-mini",
@@ -243,22 +249,38 @@ fn default_allowlist() -> HashSet<String> {
         "mistral-medium-3.5",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
+        // `deepseek-v4.1-flash` (Neuralwatt/OpenCode) was curated but missing
+        // here — a divergence `every_curated_model_is_allowlisted` (issue #1007)
+        // now refuses.
+        "deepseek-v4.1-flash",
+        // EURouter's structured-output successor of the rotated-out
+        // `deepseek-v4-flash` — deliberately neither the older `-0731` build nor
+        // the namespaced `deepseek/deepseek-v4.1-flash`.
+        "deepseek-v4.1-flash-1017",
+        "deepseek-v4.1-flash-flex",
         "glm-5.3",
         "glm-5.3-fast",
         "glm-5.3-flex",
         "glm-5.3-flash",
+        "glm-5.3-flash-flex",
         "glm-5.3-short",
         "kimi-k3",
         "kimi-k3-fast",
         "kimi-k3-flex",
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-flex",
         "qwen3.6-35b",
         "qwen3.6-35b-fast",
+        "qwen3.6-35b-flex",
         "qwen-3.8-27b",
+        "qwen-3.8-27b-flex",
         "minimax-m3",
         "minimax-m2.7",
         "mimo-v2.6-pro",
         "grok-4.5",
         "grok-4.6",
+        "grok-4.7",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
         "gemini-3.1-pro-preview",
@@ -296,6 +318,7 @@ fn default_allowlist() -> HashSet<String> {
         "kimi-k2.7-code-flex",
         "mimo-v2.5",
         // --- curated Ollama models ---
+        "qwen3.5:9b",
         "qwen3:8b",
         "llama3.2",
         "qwen2.5-coder:7b",

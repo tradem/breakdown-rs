@@ -5166,6 +5166,91 @@ async fn list_ai_models_accepts_the_google_alias_for_gemini() {
     assert!(alias.iter().all(|m| m.provider == LlmProvider::Gemini));
 }
 
+/// Issue #1007: `opencode` and `opencode-go` are two catalogues, not one. The
+/// served lists differ (`mimo-v2.6-pro` is Go-only, `minimax-m2.7` is
+/// OpenCode-only) and so does the reasoning metadata — the Go gateway declares
+/// only the provider-only `max` for `kimi-k3` while OpenCode declares
+/// `low|high|max` for the SAME id, and `deepseek-v4-pro` exposes `high` alone on
+/// both. A regression to one shared arm fails here.
+#[tokio::test]
+async fn list_ai_models_serves_the_split_opencode_catalogs() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let state = state(ports);
+
+    let (status, Json(go)) =
+        list_ai_models::<FakePorts>(State(state.clone()), user(), Path("opencode-go".to_owned()))
+            .await
+            .expect("credential-role member may list the Go gateway catalog");
+    assert_eq!(status, StatusCode::OK);
+    let go_ids: Vec<&str> = go.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        go_ids,
+        vec![
+            "deepseek-v4.1-flash",
+            "deepseek-v4-pro",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "kimi-k3.1-pro",
+            "kimi-k3",
+            "kimi-k2.7-code",
+            "minimax-m3",
+            "mimo-v2.6-pro",
+            "grok-4.7",
+        ]
+    );
+
+    let (status, Json(opencode)) =
+        list_ai_models::<FakePorts>(State(state), user(), Path("opencode".to_owned()))
+            .await
+            .expect("credential-role member may list the OpenCode catalog");
+    assert_eq!(status, StatusCode::OK);
+    let opencode_ids: Vec<&str> = opencode.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        opencode_ids,
+        vec![
+            "deepseek-v4.1-flash",
+            "deepseek-v4-pro",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "kimi-k3.1-pro",
+            "kimi-k3",
+            "kimi-k2.7-code",
+            "minimax-m3",
+            "minimax-m2.7",
+            "grok-4.7",
+        ]
+    );
+
+    use breakdown_core::ai::ReasoningEffort::{High, Low};
+    let efforts = |models: &[breakdown_core::ai::ModelInfo], id: &str| {
+        models
+            .iter()
+            .find(|m| m.id == id)
+            .map(|m| m.supported_reasoning_efforts.clone())
+            .expect("the model is curated")
+    };
+    // The provider-specific difference #1007 exists for.
+    assert!(efforts(&go, "kimi-k3").is_empty());
+    assert_eq!(efforts(&opencode, "kimi-k3"), vec![Low, High]);
+    // High-only on both endpoints.
+    assert_eq!(efforts(&go, "deepseek-v4-pro"), vec![High]);
+    assert_eq!(efforts(&opencode, "deepseek-v4-pro"), vec![High]);
+    // The low|high|max shape of the GLM/Kimi endpoints (no `medium`).
+    assert_eq!(efforts(&go, "glm-5.3-flash"), vec![Low, High]);
+    // Grok 4.7 declares low|medium|high|xhigh — three representable values.
+    assert_eq!(
+        efforts(&go, "grok-4.7"),
+        vec![Low, breakdown_core::ai::ReasoningEffort::Medium, High]
+    );
+    // A model whose metadata declares nothing representable stays empty.
+    assert!(efforts(&go, "mimo-v2.6-pro").is_empty());
+    assert!(efforts(&opencode, "minimax-m2.7").is_empty());
+}
+
 #[tokio::test]
 async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
     let ports = FakePorts::default();
@@ -5399,6 +5484,81 @@ async fn list_ai_decision_models_serves_an_empty_catalog_for_non_decision_provid
     .expect("credential-role member may query the (empty) catalog");
     assert_eq!(status, StatusCode::OK);
     assert!(models.is_empty(), "OpenAI hosts no decision models");
+}
+
+/// Issue #1007: EURouter's catalogue grew `clef` and OpenRouter rotated
+/// `liquid/d1` to `liquid/d1.2`. Both are served in curated order, priced when a
+/// row exists, and left `null` (honest absence) when it does not.
+#[tokio::test]
+async fn list_ai_decision_models_serves_the_rotated_research_catalog() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    // Price exactly the two ids the rotation added to the Decision catalogs.
+    ports.ai_model_pricing.seed(vec![
+        seeded_pricing(LlmProvider::EURouter, "clef"),
+        seeded_pricing(LlmProvider::OpenRouter, "liquid/d1.2"),
+    ]);
+    let state = state(ports);
+
+    let (status, Json(eurouter)) = list_ai_decision_models::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path("eurouter".to_owned()),
+    )
+    .await
+    .expect("credential-role member may list decision models");
+    assert_eq!(status, StatusCode::OK);
+    let ids: Vec<&str> = eurouter.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["clef-flash", "clef", "metis"]);
+    assert!(
+        eurouter
+            .iter()
+            .find(|m| m.id == "clef")
+            .and_then(|m| m.pricing.as_ref())
+            .is_some(),
+        "the newly listed EURouter decision model is priced"
+    );
+    assert!(
+        eurouter
+            .iter()
+            .find(|m| m.id == "metis")
+            .expect("metis is curated")
+            .pricing
+            .is_none(),
+        "unpriced stays null, never 0"
+    );
+
+    let (status, Json(openrouter)) =
+        list_ai_decision_models::<FakePorts>(State(state), user(), Path("openrouter".to_owned()))
+            .await
+            .expect("credential-role member may list decision models");
+    assert_eq!(status, StatusCode::OK);
+    let ids: Vec<&str> = openrouter.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "cloudflare/clef-flash",
+            "cloudflare/clef",
+            "typesafe/jev-1.14",
+            "perplexity/pplx-decider-flash-v1.2",
+            "liquid/d1.2",
+        ]
+    );
+    assert!(
+        !ids.contains(&"liquid/d1"),
+        "the rotated-out id is no longer curated (the worker still accepts it)"
+    );
+    assert!(
+        openrouter
+            .iter()
+            .find(|m| m.id == "liquid/d1.2")
+            .and_then(|m| m.pricing.as_ref())
+            .is_some(),
+        "liquid/d1.2 is priced"
+    );
 }
 
 // Image-generation model catalog (issue #732): the curated image-models

@@ -24,6 +24,63 @@ fn default_allowlist_contains_known_models() {
         .expect("catalog should be created with valid allowlist");
 }
 
+/// Issue #1007: a curated id that is missing from `default_allowlist` is
+/// refused at the catalogue boundary, so the two lists must agree — for EVERY
+/// provider, including the ones whose arms the rotation did not touch.
+#[test]
+fn every_curated_model_is_allowlisted() {
+    let catalog = super::OpenAiCompatibleModelCatalog::new()
+        .expect("catalog should be created with valid allowlist");
+    for provider in [
+        LlmProvider::OpenAI,
+        LlmProvider::Gemini,
+        LlmProvider::OpenRouter,
+        LlmProvider::EURouter,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
+        LlmProvider::Neuralwatt,
+        LlmProvider::OpenCodeGo,
+        LlmProvider::OpenCode,
+        LlmProvider::Ollama,
+    ] {
+        for model in super::provider_registry::curated_model_ids(provider) {
+            assert!(
+                catalog.is_allowed(model),
+                "{provider:?}/{model} is curated but missing from default_allowlist"
+            );
+        }
+    }
+}
+
+/// The rotation is a CURATION change, not a data change: a persisted
+/// `AiConfig` (or a historical cost snapshot) naming a rotated-out id must keep
+/// resolving. Deleting any of these from the allowlist is the regression.
+#[test]
+fn rotated_out_ids_stay_in_the_legacy_allowlist() {
+    let catalog = super::OpenAiCompatibleModelCatalog::new()
+        .expect("catalog should be created with valid allowlist");
+    for model in [
+        "deepseek-v4-flash",
+        "glm-5.2",
+        "glm-5.3-fast",
+        "glm-5.3-short",
+        "kimi-k3-fast",
+        "kimi-k3-flex",
+        "grok-4.5",
+        "grok-4.6",
+        "gpt-5.6-terra",
+        "gpt-4.1-mini",
+        "mimo-v2.6-pro",
+        "mistral-large-3",
+    ] {
+        assert!(
+            catalog.is_allowed(model),
+            "{model} left curation in #1007 but must stay allowlisted for stored configs"
+        );
+    }
+}
+
 // ===========================================================================
 // Provider Registry: curated_model_ids — kills Vec::leak replacement
 // ===========================================================================
