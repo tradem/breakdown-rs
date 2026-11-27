@@ -23,6 +23,21 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The credential hand-off in `AiConfigController.create` avoids the source
+  shape that aborts the release AOT compiler**
+  ([dart-lang/sdk#64917](https://github.com/dart-lang/sdk/issues/64917)). A
+  deferred `final` assigned inside a `switch` case and captured by a closure
+  below trips the register allocator on Dart 3.14.0 — the SDK bundled with the
+  pinned Flutter `3.50.1` — so `gen_snapshot` died with `linearscan.cc: 3013:
+  error: unreachable code` and **every** release build failed on all three
+  ABIs (`android_aot_release_android-*`, exit `-6`) while the JIT and every
+  debug gate stayed green. The hand-off failure now returns early and
+  `credential` is initialized at its declaration; the crash was located by
+  AOT-compiling the app's own kernel (`dart compile aot-snapshot app.dill`),
+  which names the offending function. No behaviour change — the same events
+  are dispatched, the same rollbacks fire, and the `ai-config` screen and
+  controller suites are unchanged and green.
+
 - **The compact bottom bar is a translucent "glass" surface the content scrolls
   under** (issue #991, Spotify/Apple-Music pattern). The bar paints nothing
   opaque any more — no `surfaceContainer` band, no elevation, no shadow, no
