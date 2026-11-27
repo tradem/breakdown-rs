@@ -38,6 +38,7 @@ export 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 export 'package:breakdown_api/src/model/ai_provider_breaker_view.dart';
 export 'package:breakdown_api/src/model/ai_provider_budget_view.dart';
+export 'package:breakdown_api/src/model/ai_provider_credential_view.dart';
 export 'package:breakdown_api/src/model/ai_provider_health_view.dart';
 export 'package:breakdown_api/src/model/ai_provider_info.dart';
 export 'package:breakdown_api/src/model/appearance_outfit_view.dart';

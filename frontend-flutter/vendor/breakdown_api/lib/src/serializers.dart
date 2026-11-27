@@ -40,6 +40,7 @@ import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 import 'package:breakdown_api/src/model/ai_provider_breaker_view.dart';
 import 'package:breakdown_api/src/model/ai_provider_budget_view.dart';
+import 'package:breakdown_api/src/model/ai_provider_credential_view.dart';
 import 'package:breakdown_api/src/model/ai_provider_health_view.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/appearance_outfit_view.dart';
@@ -254,6 +255,7 @@ part 'serializers.g.dart';
   AiPreviewPayloadOneOf2,
   AiProviderBreakerView,
   AiProviderBudgetView,
+  AiProviderCredentialView,
   AiProviderHealthView,
   AiProviderInfo,
   AppearanceOutfitView,
@@ -680,6 +682,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DocumentKind)]),
         () => ListBuilder<DocumentKind>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiProviderCredentialView)]),
+        () => ListBuilder<AiProviderCredentialView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(String)]),

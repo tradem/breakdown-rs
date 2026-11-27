@@ -85,6 +85,16 @@ const BREAKER_VIEW_LIMIT: i64 = 100;
 /// One page of the caller's config scan (the repository clamps `limit` to 100).
 const CONFIG_SCAN_PAGE: i64 = 100;
 
+/// How many distinct credentials one health read measures.
+///
+/// A config carries at most three credential slots (assistant, decision, vision),
+/// so a provider realistically holds one to three of the caller's keys. The bound
+/// keeps this read from becoming an unbounded fan-out of provider calls on a
+/// pathological (or hostile) config history, and — exactly like the paged config
+/// scan — it **fails closed** beyond it: a health read may say "I could not
+/// answer", it must never answer for a subset of the caller's accounts.
+const MAX_PROBED_CREDENTIALS: usize = 8;
+
 /// Hard stop for the config scan.
 ///
 /// A caller cannot paginate away the problem the page size solves — but a health
@@ -169,6 +179,24 @@ pub struct AiProviderHealthView {
     /// The remaining budget, or `null` when the provider reports none / there is
     /// no credential to read it with.
     pub budget: Option<AiProviderBudgetView>,
+    /// Every credential the caller holds for this provider, one entry per
+    /// distinct Vault binding (issue #1013 review).
+    ///
+    /// The three fields above describe the `selected` entry only. They cannot
+    /// describe all of them: since #1013 one config can name a page-image
+    /// (vision) credential — even on the same provider and the same model id —
+    /// whose account pays for the images, and a healthy text account would hide
+    /// a broken vision one. Empty when the caller has no credential for this
+    /// provider (an answer, not an error).
+    ///
+    /// `#[serde(default)]`: additive on the wire, the same rule as
+    /// `AiProviderInfo::decision_capable` — a server that predates the field
+    /// omits it, so the property is NOT `required` in the contract and a client
+    /// built from an older spec keeps deserializing. A client must read an absent
+    /// (or empty) list as "no per-credential detail" and fall back to the
+    /// top-level verdict, never as "no credential".
+    #[serde(default)]
+    pub credentials: Vec<AiProviderCredentialView>,
     /// The `(provider, model)` breaker rows, ordered by model for a stable
     /// rendering.
     pub breakers: Vec<AiProviderBreakerView>,
@@ -182,6 +210,36 @@ struct ConfiguredBinding {
     /// falls back to the primary binding on the worker path; the read reports
     /// the fallback rather than pretending the key is missing).
     vault_key_id: Option<String>,
+}
+
+/// One CREDENTIAL the caller holds for `{provider}` and the models it pays for
+/// (issue #1013 review).
+///
+/// A provider can be paid by more than one of the caller's credentials: the
+/// assistant pair, a distinct `decision_vault_key_id`, and — since #1013 — a
+/// distinct `vision_vault_key_id` whose ACCOUNT serves the page images. They are
+/// different accounts even on the same provider, so one verdict cannot answer
+/// for all of them; this type is the per-account half of that answer.
+///
+/// No `vault_key_id` crosses the wire (schema hygiene of this module): a
+/// credential is identified by the models it pays for and by the `selected` bit.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AiProviderCredentialView {
+    /// Whether this is the credential `credential_configured`/`probe_status`/
+    /// `budget` above describe (exactly one entry carries it when the caller has
+    /// a credential for this provider).
+    pub selected: bool,
+    /// Whether this credential could be resolved as an owned Vault binding. A
+    /// `false` here with a listed model means the reference is stale, foreign or
+    /// malformed — the state the account verdict cannot express.
+    pub credential_configured: bool,
+    /// The account-usability verdict measured with THIS credential.
+    pub probe_status: AccountProbeStatus,
+    /// The remaining budget as reported by THIS account.
+    pub budget: Option<AiProviderBudgetView>,
+    /// The configured models of `{provider}` this credential pays for, sorted and
+    /// deduplicated.
+    pub models: Vec<String>,
 }
 
 /// `GET /ai-import/providers/{provider}/health`
@@ -230,51 +288,82 @@ pub async fn get_ai_provider_health<P: Ports>(
     let configs = list_caller_configs(&state, &current_user.sub).await?;
     let bindings = configured_bindings(&configs, provider);
 
-    // The credential: the caller's OWN binding for the requested model, else the
-    // first binding of the provider. Nothing is read when the caller has no
-    // config at all — an unconfigured user is an answer, not an error.
-    let binding = select_binding(&bindings, requested_model.as_deref());
-    let secret = match binding.and_then(|binding| binding.vault_key_id.as_deref()) {
-        Some(vault_key_id) => read_own_credential(&state, &current_user.sub, vault_key_id).await,
-        None => None,
-    };
-    let credential_configured = secret.is_some();
+    // The SELECTED credential: the caller's own binding for the requested model,
+    // else the first binding of the provider. Nothing is read when the caller has
+    // no config at all — an unconfigured user is an answer, not an error.
+    let selected_binding = select_binding(&bindings, requested_model.as_deref());
+    let selected_vault_key_id =
+        selected_binding.and_then(|binding| binding.vault_key_id.as_deref());
 
-    // The account verdict. `unknown` everywhere nothing was measured: no
-    // credential, a provider without a verified zero-token endpoint, or a
-    // transport failure inside the probe.
-    let snapshot = match probe_capability(provider) {
-        ProbeCapability::NoPreflight => AccountProbeSnapshot::unknown(),
-        ProbeCapability::LocalTags => {
-            state
-                .ports
-                .ai_provider_account_probe()
-                .probe_account(AccountProbeRequest {
-                    user_id: &current_user.sub,
-                    provider,
-                    vault_key_id: binding
-                        .and_then(|b| b.vault_key_id.as_deref())
-                        .unwrap_or(""),
-                    key: None,
-                })
-                .await
-        }
-        ProbeCapability::KeyEndpoint => match (secret.as_deref(), binding) {
-            (Some(key), Some(binding)) => {
-                state
-                    .ports
-                    .ai_provider_account_probe()
-                    .probe_account(AccountProbeRequest {
-                        user_id: &current_user.sub,
-                        provider,
-                        vault_key_id: binding.vault_key_id.as_deref().unwrap_or(""),
-                        key: Some(key),
-                    })
-                    .await
+    // Every credential of this provider is measured on its own (issue #1013
+    // review): one provider can be paid by several of the caller's accounts, and
+    // the vision account is the one that pays for page images. The top-level
+    // fields keep describing the SELECTED entry, so a caller that reads only them
+    // sees the pre-#1013 answer unchanged.
+    let groups = credential_groups(&bindings);
+    if groups.len() > MAX_PROBED_CREDENTIALS {
+        tracing::error!(
+            caller = current_user.sub.as_str(),
+            credentials = groups.len(),
+            "#942 health: the caller holds more credentials for this provider than one read may probe — refusing to answer a partial credential state"
+        );
+        return Err(DomainError::service_unavailable(
+            "the caller's provider credentials could not all be measured, so the credential state is unknown",
+        )
+        .into());
+    }
+    let mut credentials: Vec<AiProviderCredentialView> = Vec::with_capacity(groups.len());
+    for group in &groups {
+        let (configured, snapshot) = probe_credential(
+            &state,
+            &current_user.sub,
+            provider,
+            group.vault_key_id.as_str(),
+        )
+        .await;
+        credentials.push(AiProviderCredentialView {
+            selected: Some(group.vault_key_id.as_str()) == selected_vault_key_id,
+            credential_configured: configured,
+            probe_status: snapshot.status,
+            budget: budget_view(&snapshot),
+            models: group.models.clone(),
+        });
+    }
+
+    let (credential_configured, probe_status, budget) =
+        match credentials.iter().find(|credential| credential.selected) {
+            Some(credential) => (
+                credential.credential_configured,
+                credential.probe_status,
+                credential.budget,
+            ),
+            // No credential at all. `LocalTags` (Ollama) reads its own endpoint and is
+            // measured anyway — the pre-#1013 shape, kept: "is a key stored" and "is
+            // the account usable" are different questions.
+            None => {
+                let snapshot = match probe_capability(provider) {
+                    ProbeCapability::LocalTags => {
+                        state
+                            .ports
+                            .ai_provider_account_probe()
+                            .probe_account(AccountProbeRequest {
+                                user_id: &current_user.sub,
+                                provider,
+                                vault_key_id: "",
+                                key: None,
+                            })
+                            .await
+                    }
+                    // `NoPreflight` (no verified zero-token endpoint) and
+                    // `KeyEndpoint` (nothing to read it with) stay `unknown`: a
+                    // health read never fabricates a verdict it did not measure.
+                    ProbeCapability::NoPreflight | ProbeCapability::KeyEndpoint => {
+                        AccountProbeSnapshot::unknown()
+                    }
+                };
+                (false, snapshot.status, budget_view(&snapshot))
             }
-            _ => AccountProbeSnapshot::unknown(),
-        },
-    };
+        };
 
     let breakers =
         collect_breakers(&state, provider, requested_model.as_deref(), &bindings).await?;
@@ -284,13 +373,110 @@ pub async fn get_ai_provider_health<P: Ports>(
         AiProviderHealthView {
             provider,
             credential_configured,
-            probe_status: snapshot.status,
-            budget: snapshot.budget.map(|budget| AiProviderBudgetView {
-                remaining: budget.remaining,
-            }),
+            probe_status,
+            budget,
+            credentials,
             breakers,
         },
     ))
+}
+
+/// One credential of `{provider}` and the models it pays for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CredentialGroup {
+    vault_key_id: String,
+    models: Vec<String>,
+}
+
+/// The distinct credentials behind `bindings`, in `bindings` order (the
+/// assistant pair first, then `image_model`, decision and vision), each with the
+/// models it pays for.
+///
+/// `bindings` is already deduplicated by `(model, credential)`, so one credential
+/// can appear with several models and several credentials can share one model.
+fn credential_groups(bindings: &[ConfiguredBinding]) -> Vec<CredentialGroup> {
+    let mut groups: Vec<CredentialGroup> = Vec::new();
+    for binding in bindings {
+        let Some(vault_key_id) = binding.vault_key_id.as_deref() else {
+            // A `None` binding has no credential to probe; `select_binding` falls
+            // back to the first binding that has one (or to none).
+            continue;
+        };
+        match groups
+            .iter_mut()
+            .find(|group| group.vault_key_id == vault_key_id)
+        {
+            Some(group) => {
+                if !group.models.iter().any(|model| model == &binding.model) {
+                    group.models.push(binding.model.clone());
+                }
+            }
+            None => groups.push(CredentialGroup {
+                vault_key_id: vault_key_id.to_owned(),
+                models: vec![binding.model.clone()],
+            }),
+        }
+    }
+    for group in &mut groups {
+        group.models.sort_unstable();
+    }
+    groups
+}
+
+/// The wire shape of a probe's budget.
+fn budget_view(snapshot: &AccountProbeSnapshot) -> Option<AiProviderBudgetView> {
+    snapshot.budget.map(|budget| AiProviderBudgetView {
+        remaining: budget.remaining,
+    })
+}
+
+/// Read the caller's OWN credential for `vault_key_id` and measure the account
+/// with it, returning `(was a usable binding found, snapshot)`.
+///
+/// `unknown` everywhere nothing was measured: no readable binding, a provider
+/// without a verified zero-token endpoint, or a transport failure inside the
+/// probe. The `LocalTags` capability (Ollama) reads its own endpoint and needs no
+/// secret, so it is measured even without a readable binding — the "is a key
+/// stored" answer stays `false`, and the two facts do not hide each other.
+async fn probe_credential<P: Ports>(
+    state: &AppState<P>,
+    caller: &UserId,
+    provider: LlmProvider,
+    vault_key_id: &str,
+) -> (bool, AccountProbeSnapshot) {
+    let secret = read_own_credential(state, caller, vault_key_id).await;
+    let configured = secret.is_some();
+    let snapshot = match probe_capability(provider) {
+        ProbeCapability::NoPreflight => AccountProbeSnapshot::unknown(),
+        ProbeCapability::LocalTags => {
+            state
+                .ports
+                .ai_provider_account_probe()
+                .probe_account(AccountProbeRequest {
+                    user_id: caller,
+                    provider,
+                    vault_key_id,
+                    key: None,
+                })
+                .await
+        }
+        ProbeCapability::KeyEndpoint => match secret.as_deref() {
+            Some(key) => {
+                state
+                    .ports
+                    .ai_provider_account_probe()
+                    .probe_account(AccountProbeRequest {
+                        user_id: caller,
+                        provider,
+                        vault_key_id,
+                        key: Some(key),
+                    })
+                    .await
+            }
+            None => AccountProbeSnapshot::unknown(),
+        },
+    };
+    (configured, snapshot)
 }
 
 /// Validate and trim the optional `?model=` parameter.
@@ -358,8 +544,19 @@ fn configured_bindings(configs: &[AiConfigView], provider: LlmProvider) -> Vec<C
     bindings
 }
 
+/// Add one `(model, credential)` pair, deduplicated by **both** halves.
+///
+/// Deduplicating by model alone would drop a real, distinct credential: the
+/// vision slot may name the same provider and even the same model id as the
+/// assistant pair while a different Vault binding pays for the pages (the
+/// aggregate allows exactly that, and it is the split-billing shape #1013
+/// exists for). The assistant binding is pushed first, so a model-only dedupe
+/// silently discarded the vision credential — and the health read then reported
+/// the text account's verdict for the page-image account (issue #1013 review).
 fn push_binding(bindings: &mut Vec<ConfiguredBinding>, model: &str, vault_key_id: &str) {
-    if bindings.iter().any(|binding| binding.model == model) {
+    if bindings.iter().any(|binding| {
+        binding.model == model && binding.vault_key_id.as_deref() == Some(vault_key_id)
+    }) {
         return;
     }
     bindings.push(ConfiguredBinding {

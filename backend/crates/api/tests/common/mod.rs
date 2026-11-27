@@ -3749,9 +3749,17 @@ pub struct RecordedAccountProbe {
 
 /// Fake account probe (issue #942 W4): records every request, answers a seeded
 /// snapshot (default: `unknown`).
+///
+/// [`Self::by_vault_key`] answers per CREDENTIAL: since #1013 a provider can be
+/// paid by several of the caller's accounts (assistant, decision, vision), and a
+/// test that seeds one account-level snapshot cannot tell which one a read
+/// measured (issue #1013 review).
 #[derive(Clone, Default)]
 pub struct FakeAccountProbe {
     pub snapshot: Arc<Mutex<breakdown_core::ai::AccountProbeSnapshot>>,
+    /// Per-`vault_key_id` answers, consulted before [`Self::snapshot`].
+    pub by_vault_key:
+        Arc<Mutex<std::collections::HashMap<String, breakdown_core::ai::AccountProbeSnapshot>>>,
     pub requests: Arc<Mutex<Vec<RecordedAccountProbe>>>,
 }
 
@@ -3760,6 +3768,18 @@ impl FakeAccountProbe {
     /// The requests this fake served, in call order.
     pub async fn recorded(&self) -> Vec<RecordedAccountProbe> {
         self.requests.lock().await.clone()
+    }
+
+    /// Answer `vault_key_id` with its own snapshot.
+    pub async fn answer_key(
+        &self,
+        vault_key_id: &str,
+        snapshot: breakdown_core::ai::AccountProbeSnapshot,
+    ) {
+        self.by_vault_key
+            .lock()
+            .await
+            .insert(vault_key_id.to_owned(), snapshot);
     }
 }
 
@@ -3775,6 +3795,15 @@ impl breakdown_core::ai::ProviderAccountProbe for FakeAccountProbe {
             vault_key_id: request.vault_key_id.to_owned(),
             key: request.key.map(str::to_owned),
         });
+        if let Some(snapshot) = self
+            .by_vault_key
+            .lock()
+            .await
+            .get(request.vault_key_id)
+            .copied()
+        {
+            return snapshot;
+        }
         *self.snapshot.lock().await
     }
 }
