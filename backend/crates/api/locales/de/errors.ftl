@@ -57,6 +57,21 @@ problem-ai-config-decision-vault-key-empty =
 problem-ai-config-reasoning-effort-unsupported =
     Das gewählte Modell unterstützt diese Denk-Intensität nicht. Bitte eine andere Stufe wählen oder die Voreinstellung des Anbieters verwenden.
 
+problem-ai-config-vision-incomplete =
+    Die Vision-Konfiguration ist unvollständig — Anbieter, Modell und Berechtigung müssen gemeinsam gesetzt werden (oder alle drei leer bleiben, dann nutzt der Import das Assistenten-Modell).
+
+problem-ai-config-vision-provider-unsupported =
+    Dieser Anbieter darf keine Seitenbilder erhalten. Für den Bildpfad ist ein Anbieter mit Null-Aufbewahrung, ohne Training auf Eingaben und mit EU-Datenhaltung nötig — der Import verweigert das Speichern, damit kein bezahlter Seitenaufruf scheitert.
+
+problem-ai-config-vision-model-empty =
+    Das Vision-Modell darf nicht leer sein.
+
+problem-ai-config-vision-vault-key-empty =
+    Die Berechtigungsreferenz des Vision-Modells darf nicht leer sein.
+
+problem-ai-config-vision-vault-key-mismatch =
+    Diese Berechtigung gehört zu einem anderen Anbieter. Die Assistenten-Berechtigung darf nur dann für Vision wiederverwendet werden, wenn beide denselben Anbieter nutzen.
+
 problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
 

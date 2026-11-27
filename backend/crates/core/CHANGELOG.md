@@ -18,6 +18,37 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.81.0] - Unreleased
+### Added (issue #1013)
+
+- `AiConfig` gained the **Vision slot**: `vision_provider`, `vision_model`,
+  `vision_vault_key_id` and `vision_zdr_attested`, all-or-nothing like the
+  `decision` triple from #722. It names the provider/model/credential that
+  carries **page images** (the page-streaming schedule extractor and the VLM
+  structural-zoning pass); `vision_* = None` means "use the assistant pair",
+  which is byte-identical to every configuration written before the slot
+  existed. `image_model` is deliberately NOT reused — it is the diffusion
+  *generation* seam (#673) and is read by no worker.
+- `CreateAiConfig` / `UpdateAiConfig` carry the slot (update side tri-state:
+  omitted keeps, `Some(None)` clears, `Some(Some(..))` replaces).
+  `AiConfigEvent::{Created,Updated}` carry it with `#[serde(default)]`, so a
+  pre-#1013 event replays as "no vision slot".
+- `AiConfigError` grew five variants, each mapped to its own registered
+  problem code: `ai-config.vision-incomplete`, `ai-config.vision-model-empty`,
+  `ai-config.vision-vault-key-empty`, `ai-config.vision-vault-key-mismatch`
+  (same-key reuse across providers) and `ai-config.vision-provider-unsupported`
+  (the ADR-041 `D2` egress gate).
+- `validate_vision_config` refuses a non-compliant vision provider at **save**
+  time (`vision_egress_compliant(vision_egress_policy_for_config(..))`), so the
+  refusal arrives before the first paid page call instead of on it. On update
+  the slot is re-validated only when it CHANGED (or the extraction
+  provider/key it references for same-key reuse changed), mirroring the
+  catalogue-rotation safety of `reasoning_effort`/`decision`.
+- The vision attestation is bound to the vision CREDENTIAL: an update that
+  replaces `vision_vault_key_id` (or the vision provider) resolves an omitted
+  `vision_zdr_attested` to `false` — the same #968 rule the extraction
+  attestation already follows.
+
 ## [0.80.0] - Unreleased
 ### Changed (issue #1007)
 

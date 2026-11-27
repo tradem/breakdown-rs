@@ -33,6 +33,26 @@ pub enum AiConfigError {
     DecisionModelUnknown,
     #[error("decision vault key reference must not be empty")]
     EmptyDecisionVaultKey,
+    /// Vision slot (issue #1013): a vision model, provider or vault key was
+    /// set without the other two. All-or-nothing, like the decision triple —
+    /// the worker could not build a page-image client from half a slot.
+    #[error("vision model requires a vision provider and vault key")]
+    VisionProviderRequired,
+    /// The configured vision provider cannot legally carry page images
+    /// (ADR-041 `D2`: zero data retention, no training on inputs, EU data
+    /// residency). Refused at save time so the refusal arrives before the
+    /// first paid PDF page instead of on it.
+    #[error("vision provider cannot carry page images")]
+    VisionProviderUnsupported,
+    #[error("vision model must not be empty")]
+    EmptyVisionModel,
+    #[error("vision vault key reference must not be empty")]
+    EmptyVisionVaultKey,
+    /// Same-key reuse rule (issue #722 precedent): a vision slot may reference
+    /// the extraction key only when it names the SAME provider. A foreign
+    /// provider's key would authenticate a client built for another endpoint.
+    #[error("vision vault key cannot be reused across providers")]
+    VisionVaultKeyMismatch,
     /// The configured assistant pair does not accept the requested
     /// `reasoning_effort` (2026-11-20 output-budget investigation): either the
     /// provider/model declares no such parameter at all, or it declares a

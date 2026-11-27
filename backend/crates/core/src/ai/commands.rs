@@ -38,6 +38,26 @@ pub struct CreateAiConfig {
     pub decision_model: Option<String>,
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
+    /// Optional Vision slot (issue #1013): the provider/model/credential that
+    /// carries PAGE IMAGES (page-streaming schedules, VLM structural zoning).
+    /// Additive with `#[serde(default)]`; unset means "use the assistant
+    /// pair", i.e. byte-identical behaviour to a pre-#1013 configuration.
+    ///
+    /// `vision_vault_key_id` MAY equal `vault_key_id` when `vision_provider ==
+    /// provider` (same-key reuse); otherwise it must reference a distinct
+    /// active credential of the vision provider owned by the caller.
+    #[serde(default)]
+    pub vision_provider: Option<LlmProvider>,
+    #[serde(default)]
+    pub vision_model: Option<String>,
+    #[serde(default)]
+    pub vision_vault_key_id: Option<String>,
+    /// Operator attestation that the VISION provider account has zero data
+    /// retention enabled (issue #968 semantics, vision-scoped). Additive with
+    /// `#[serde(default)]`: an unattested vision account keeps the egress gate
+    /// fail-closed for providers whose ZDR is an account switch.
+    #[serde(default)]
+    pub vision_zdr_attested: bool,
     /// Optional `reasoning_effort` for the assistant model (2026-11-20
     /// output-budget investigation). [`ReasoningEffortChoice::Auto`] — the
     /// default, and the behaviour of every configuration written before this
@@ -83,6 +103,22 @@ pub struct UpdateAiConfig {
     pub decision_model: Option<Option<String>>,
     #[serde(default)]
     pub decision_vault_key_id: Option<Option<String>>,
+    /// Vision slot (issue #1013), tri-state like the decision slot: an omitted
+    /// field keeps the stored slot, `Some(None)` clears it, `Some(Some(..))`
+    /// replaces it. The three fields are resolved as a WHOLE before
+    /// validation, so a partial patch cannot leave the slot half-set.
+    #[serde(default)]
+    pub vision_provider: Option<Option<LlmProvider>>,
+    #[serde(default)]
+    pub vision_model: Option<Option<String>>,
+    #[serde(default)]
+    pub vision_vault_key_id: Option<Option<String>>,
+    /// Attestation for the vision provider account (issue #1013). `None` (an
+    /// omitted field) keeps the stored attestation **unless this command also
+    /// replaces the vision credential** — the attestation describes ONE
+    /// account's `ZDR Mode` and does not carry over to a different credential.
+    #[serde(default)]
+    pub vision_zdr_attested: Option<bool>,
     /// `reasoning_effort`: an omitted field keeps the stored value (an older
     /// client), `Auto` resets it to the system default (the curated profile of
     /// the pair, else the provider's own default), a level replaces it.

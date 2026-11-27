@@ -2630,6 +2630,10 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             vault_key_id: "vault-key".to_owned(),
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -2667,6 +2671,10 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
 
@@ -2735,6 +2743,10 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             version: created.version,
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -2798,6 +2810,10 @@ async fn ai_config_persists_and_returns_the_decision_triple() {
             decision_vault_key_id: Some("vault-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -2834,6 +2850,10 @@ async fn ai_config_persists_and_returns_the_decision_triple() {
             version: created.version,
             revoked: false,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let (status, Json(view)) =
@@ -2868,6 +2888,10 @@ async fn ai_config_persists_and_returns_the_decision_triple() {
             version: AggregateVersion::INITIAL,
             revoked: false,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let (status, Json(patched_version)) = update_ai_config::<FakePorts>(
@@ -2887,6 +2911,10 @@ async fn ai_config_persists_and_returns_the_decision_triple() {
             reasoning_effort: None,
             version: AggregateVersion::INITIAL,
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -2945,6 +2973,10 @@ async fn ai_config_carries_the_zdr_attestation_into_the_command() {
             decision_vault_key_id: None,
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: true,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -2979,6 +3011,10 @@ async fn ai_config_carries_the_zdr_attestation_into_the_command() {
             decision_vault_key_id: None,
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: true,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
             version: created.version,
             revoked: false,
         },
@@ -3008,6 +3044,10 @@ async fn ai_config_carries_the_zdr_attestation_into_the_command() {
             decision_vault_key_id: None,
             reasoning_effort: None,
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
             version: created.version,
         }),
     )
@@ -3063,6 +3103,10 @@ async fn ai_config_carries_an_explicit_reasoning_effort_into_the_command() {
             vault_key_id: "vault-key".to_owned(),
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -3102,6 +3146,10 @@ async fn ai_config_carries_an_explicit_reasoning_effort_into_the_command() {
             version: created.version,
             revoked: false,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
 
@@ -3123,6 +3171,10 @@ async fn ai_config_carries_an_explicit_reasoning_effort_into_the_command() {
             version: created.version,
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -3173,6 +3225,10 @@ async fn an_undeclared_reasoning_effort_is_the_registered_422() {
             vault_key_id: "vault-key".to_owned(),
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -3226,6 +3282,10 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let state = state(ports);
@@ -3247,6 +3307,10 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
             version: AggregateVersion(2),
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -3293,6 +3357,10 @@ async fn ai_config_update_rejects_unknown_vault_key() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let state = state(ports);
@@ -3314,6 +3382,10 @@ async fn ai_config_update_rejects_unknown_vault_key() {
             version: AggregateVersion(2),
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -3358,6 +3430,10 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let state = state(ports);
@@ -3379,6 +3455,10 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
             version: AggregateVersion(2),
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -3419,6 +3499,10 @@ async fn ai_config_version_conflict_is_scoped_409() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let state = state(ports);
@@ -3440,6 +3524,10 @@ async fn ai_config_version_conflict_is_scoped_409() {
             version: AggregateVersion(2),
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -3486,6 +3574,10 @@ async fn get_ai_config_denies_a_foreign_owner() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
 
@@ -3519,6 +3611,10 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
             vault_key_id: "vault-key".to_owned(),
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -3866,6 +3962,10 @@ fn config_view(user_sub: &str) -> AiConfigView {
         revoked: false,
         cost_display_preference: CostDisplayPreference::Token,
         zdr_attested: false,
+        vision_provider: None,
+        vision_model: None,
+        vision_vault_key_id: None,
+        vision_zdr_attested: false,
     }
 }
 
@@ -3957,6 +4057,10 @@ async fn ai_config_create_rejects_a_foreign_vault_key() {
             vault_key_id: "foreign-vault-key".to_owned(),
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -3996,6 +4100,10 @@ async fn ai_config_create_rejects_an_unknown_vault_key_fail_closed() {
             vault_key_id: "never-vaulted-key".to_owned(),
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -4046,6 +4154,10 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Token,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
     let state = state(ports);
@@ -4067,6 +4179,10 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
             version: AggregateVersion(2),
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -5290,6 +5406,10 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
             // User opts into energy-based display (issue #675).
             cost_display_preference: CostDisplayPreference::Energy,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -5323,6 +5443,10 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
             revoked: false,
             cost_display_preference: CostDisplayPreference::Energy,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         },
     );
 
@@ -5343,6 +5467,10 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
             version: created.version,
             cost_display_preference: Some(CostDisplayPreference::Token),
             zdr_attested: None,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: None,
         }),
     )
     .await
@@ -5659,6 +5787,10 @@ async fn create_ai_config_accepts_same_key_decision_reuse_within_one_provider() 
             decision_vault_key_id: Some("vault-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -5700,6 +5832,10 @@ async fn create_ai_config_rejects_a_decision_key_shared_across_providers() {
             decision_vault_key_id: Some("vault-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -5747,6 +5883,10 @@ async fn create_ai_config_rejects_a_foreign_distinct_decision_key() {
             decision_vault_key_id: Some("foreign-decision-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -5794,6 +5934,10 @@ async fn create_ai_config_accepts_a_distinct_owned_decision_key_for_split_billin
             decision_vault_key_id: Some("split-billing-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -5837,6 +5981,10 @@ async fn update_ai_config_raw_json_null_clears_the_decision_slot() {
             decision_vault_key_id: Some("vault-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -5918,6 +6066,10 @@ async fn update_ai_config_omitted_decision_fields_resolve_from_the_stored_bindin
             decision_vault_key_id: Some("vault-key".to_owned()),
             reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             zdr_attested: false,
+            vision_provider: None,
+            vision_model: None,
+            vision_vault_key_id: None,
+            vision_zdr_attested: false,
         }),
     )
     .await
@@ -6175,5 +6327,660 @@ async fn apply_refusal_ages_a_claim_that_never_published_a_frame() {
         (lower..=upper).contains(&i64::try_from(age).expect("age fits in i64")),
         "the reported age must be the CLAIM's age at the refusal \
          (expected {lower}..={upper}, got {age}s)"
+    );
+}
+
+/// Issue #1013: the Vision slot must survive the API edge in every direction —
+/// create carries it into the command, the view returns it, and PATCH keeps
+/// (omitted), replaces (`Some(Some)`) or clears (`Some(None)`) it.
+///
+/// The shape under test is the reported defect: a TEXT assistant pair plus a
+/// SEPARATE page-image pair, so a Drehplan page is never sent to the text model.
+#[tokio::test]
+async fn ai_config_persists_and_returns_the_vision_slot() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    // The extraction credential belongs to the TEXT provider, the vision
+    // credential to the vision provider: two distinct accounts, two distinct
+    // keys (split billing, no same-key reuse).
+    ports
+        .settings_repo
+        .bind_vault_key("text-vault-key", LlmProvider::OpenAI.as_str(), TEST_SUB)
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vision-vault-key", LlmProvider::Ovhcloud.as_str(), TEST_SUB)
+        .await;
+    let state = state(ports);
+
+    // (1) CREATE carries the slot into the dispatched command.
+    let (status, Json(created)) = create_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "text-vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+            zdr_attested: false,
+            vision_provider: Some(LlmProvider::Ovhcloud),
+            vision_model: Some("qwen3-vl-30b-a3b".to_owned()),
+            vision_vault_key_id: Some("vision-vault-key".to_owned()),
+            vision_zdr_attested: false,
+        }),
+    )
+    .await
+    .expect("a text assistant pair plus a compliant vision pair is a valid config");
+    assert_eq!(status, StatusCode::CREATED);
+    {
+        let created_commands = commands.created.lock().await;
+        let command = created_commands
+            .last()
+            .expect("create must dispatch a command");
+        assert_eq!(command.vision_provider, Some(LlmProvider::Ovhcloud));
+        assert_eq!(command.vision_model.as_deref(), Some("qwen3-vl-30b-a3b"));
+        assert_eq!(
+            command.vision_vault_key_id.as_deref(),
+            Some("vision-vault-key")
+        );
+        assert!(!command.vision_zdr_attested);
+    }
+
+    // (2) The read view returns the stored slot (what the projector writes).
+    repo.views.lock().await.insert(
+        created.id,
+        AiConfigView {
+            id: created.id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: Vec::new(),
+            stored_prompt_kinds: Vec::new(),
+            vault_key_id: "text-vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            vision_provider: Some(LlmProvider::Ovhcloud),
+            vision_model: Some("qwen3-vl-30b-a3b".to_owned()),
+            vision_vault_key_id: Some("vision-vault-key".to_owned()),
+            vision_zdr_attested: false,
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+            version: created.version,
+            revoked: false,
+            zdr_attested: false,
+        },
+    );
+    let (status, Json(view)) =
+        get_ai_config::<FakePorts>(State(state.clone()), user(), Path(created.id))
+            .await
+            .expect("owner may read their config");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view.vision_provider, Some(LlmProvider::Ovhcloud));
+    assert_eq!(view.vision_model.as_deref(), Some("qwen3-vl-30b-a3b"));
+    assert_eq!(
+        view.vision_vault_key_id.as_deref(),
+        Some("vision-vault-key")
+    );
+
+    // (3) PATCH that OMITS the slot dispatches `None` (keep the stored slot) —
+    // an older client editing the prompts must not clear the vision pair.
+    // Deserialized from RAW JSON, like the decision-slot tests above: a
+    // hand-built struct cannot notice that `deserialize_optional_nullable`
+    // folded "absent" into the clearing `Some(None)`, which would silently
+    // wipe the slot on every prompt-only save.
+    let raw = serde_json::json!({
+        "provider": "openai",
+        "assistant_model": "gpt-4o",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "text-vault-key",
+        "version": created.version.0
+    });
+    let request: UpdateAiConfigRequest = serde_json::from_value(raw)
+        .expect("omitted vision fields deserialize to the keeping outer None");
+    assert_eq!(request.vision_provider, None);
+    assert_eq!(request.vision_model, None);
+    assert_eq!(request.vision_vault_key_id, None);
+    let (status, _) = update_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path(created.id),
+        Json(request),
+    )
+    .await
+    .expect("owner may edit a config without touching the vision slot");
+    assert_eq!(status, StatusCode::OK);
+    {
+        let updated_commands = commands.updated.lock().await;
+        let command = updated_commands
+            .last()
+            .expect("update must dispatch a command");
+        assert_eq!(command.vision_provider, None, "omitted keeps the slot");
+        assert_eq!(command.vision_model, None);
+        assert_eq!(command.vision_vault_key_id, None);
+        assert_eq!(command.vision_zdr_attested, None);
+    }
+
+    // (4) PATCH with an explicit `null` clears the slot (tri-state), so the
+    // import falls back to the assistant pair. Raw JSON again: the clearing
+    // `Some(None)` must be REACHABLE through the wire shape a client actually
+    // sends, otherwise the slot can never be cleared.
+    let raw = serde_json::json!({
+        "provider": "openai",
+        "assistant_model": "gpt-4o",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "text-vault-key",
+        "vision_provider": null,
+        "vision_model": null,
+        "vision_vault_key_id": null,
+        "vision_zdr_attested": false,
+        "version": created.version.0
+    });
+    let request: UpdateAiConfigRequest =
+        serde_json::from_value(raw).expect("explicit nulls deserialize to the clearing Some(None)");
+    assert_eq!(request.vision_provider, Some(None));
+    assert_eq!(request.vision_model, Some(None));
+    assert_eq!(request.vision_vault_key_id, Some(None));
+    assert_eq!(request.vision_zdr_attested, Some(false));
+    let (status, _) =
+        update_ai_config::<FakePorts>(State(state), user(), Path(created.id), Json(request))
+            .await
+            .expect("owner may clear the vision slot");
+    assert_eq!(status, StatusCode::OK);
+    {
+        let updated_commands = commands.updated.lock().await;
+        let command = updated_commands
+            .last()
+            .expect("update must dispatch a command");
+        assert_eq!(command.vision_provider, Some(None), "explicit null clears");
+        assert_eq!(command.vision_model, Some(None));
+        assert_eq!(command.vision_vault_key_id, Some(None));
+        assert_eq!(command.vision_zdr_attested, Some(false));
+    }
+}
+
+/// Issue #1013 (review finding round 2): a credential-slot PATCH must carry
+/// BOTH halves of the pair — provider and key. The aggregate resolves an
+/// omitted half from its OWN state, while the edge can only read the
+/// projection, so a half-supplied pair is completed from a source the edge
+/// cannot see. A populated-but-stale projection does not rescue that: it makes
+/// the edge validate the WRONG half (projection `(EURouter, key-a)` against an
+/// aggregate that stores `(Ovhcloud, key-b)` under key-a).
+#[tokio::test]
+async fn update_ai_config_rejects_a_half_supplied_vision_credential() {
+    // (label, projected provider, projected key, request body)
+    let cases: [(&str, Option<LlmProvider>, Option<&str>, serde_json::Value); 3] = [
+        (
+            "empty projection, key only",
+            None,
+            None,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_vault_key_id": "fresh-vision-key",
+                "version": 1
+            }),
+        ),
+        (
+            "POPULATED stale projection, key only",
+            Some(LlmProvider::EURouter),
+            Some("projected-vision-key"),
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                // Equals the PROJECTED key, so a projection-relative
+                // "is it a replacement?" test would let it through while the
+                // aggregate pairs it with its own stored provider.
+                "vision_vault_key_id": "projected-vision-key",
+                "version": 1
+            }),
+        ),
+        (
+            "provider only",
+            None,
+            None,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_provider": "ovhcloud",
+                "version": 1
+            }),
+        ),
+    ];
+
+    for (label, projected_provider, projected_key, raw) in cases {
+        let ports = FakePorts::default();
+        ports
+            .membership_repo
+            .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+            .await;
+        // Every key the guard could object to IS an owned, active OVHcloud
+        // credential: the rejection must come from the incomplete pair, never
+        // from ownership or provider binding.
+        ports
+            .settings_repo
+            .bind_vault_key("fresh-vision-key", LlmProvider::Ovhcloud.as_str(), TEST_SUB)
+            .await;
+        ports
+            .settings_repo
+            .bind_vault_key(
+                "projected-vision-key",
+                LlmProvider::EURouter.as_str(),
+                TEST_SUB,
+            )
+            .await;
+        let commands = ports.ai_config_commands.clone();
+        let repo = ports.ai_config_repo.clone();
+        let state = state(ports);
+
+        let mut view = config_view(TEST_SUB);
+        view.vision_provider = projected_provider;
+        view.vision_model = projected_provider.map(|_| "projected-vision-model".to_owned());
+        view.vision_vault_key_id = projected_key.map(str::to_owned);
+        let id = view.id;
+        repo.views.lock().await.insert(id, view);
+
+        let request: UpdateAiConfigRequest =
+            serde_json::from_value(raw).expect("a half-supplied vision pair deserializes");
+
+        let problem = update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+            .await
+            .expect_err(label)
+            .into_problem();
+
+        assert_eq!(
+            problem.status,
+            StatusCode::UNPROCESSABLE_ENTITY.as_u16(),
+            "{label}"
+        );
+        assert_eq!(problem.code, "ai-config.vision-incomplete", "{label}");
+        assert!(
+            commands.updated.lock().await.is_empty(),
+            "{label}: the command must not be dispatched"
+        );
+    }
+}
+
+/// Issue #1013 (review finding round 3): an unchanged credential pair is only
+/// trusted while the request acts on EXACTLY the projected state. A request
+/// ahead of the projection (stale read model) can resubmit an OLDER pair whose
+/// key was revoked since it was written — prior validation proves ownership and
+/// provider binding at introduction time, never current active state.
+///
+/// Each case populates ONLY the slot it exercises (review finding on the first
+/// version of this test): with both slots seeded and both bindings missing, the
+/// Decision check answered first and the Vision case passed even without its
+/// own version rule.
+#[tokio::test]
+async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
+    // (label, request version, projected slot, body, expected problem code —
+    // `None` = accepted)
+    let cases: [(&str, u64, &str, serde_json::Value, Option<&str>); 3] = [
+        (
+            "vision, on the projected state (no lookup, prompt-only save)",
+            2,
+            "vision",
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_provider": "ovhcloud",
+                "vision_model": "qwen3-vl-30b-a3b",
+                "vision_vault_key_id": "projected-vision-key",
+                "version": 2
+            }),
+            None,
+        ),
+        (
+            "vision, ahead of the stale projection (revoked key re-checked)",
+            3,
+            "vision",
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_provider": "ovhcloud",
+                "vision_model": "qwen3-vl-30b-a3b",
+                "vision_vault_key_id": "projected-vision-key",
+                "version": 3
+            }),
+            Some("ai-config.vault-key-forbidden"),
+        ),
+        (
+            "decision, ahead of the stale projection (revoked key re-checked)",
+            3,
+            "decision",
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "decision_provider": "eurouter",
+                "decision_model": "clef-flash",
+                "decision_vault_key_id": "projected-decision-key",
+                "version": 3
+            }),
+            Some("ai-config.vault-key-forbidden"),
+        ),
+    ];
+
+    for (label, request_version, slot, raw, expected_code) in cases {
+        let ports = FakePorts::default();
+        ports
+            .membership_repo
+            .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+            .await;
+        ports
+            .settings_repo
+            .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+            .await;
+        // The pair the projection still shows is REVOKED in the vault after it
+        // was written: re-storing it must not be accepted on the strength of
+        // "the projection says this is the current pair". Only the exercised
+        // slot's key is missing, so the assertion cannot be satisfied by the
+        // other slot's refusal.
+        let revoked_key = match slot {
+            "vision" => "projected-vision-key",
+            _ => "projected-decision-key",
+        };
+        ports
+            .settings_repo
+            .by_vault_key
+            .lock()
+            .await
+            .remove(revoked_key);
+        let commands = ports.ai_config_commands.clone();
+        let repo = ports.ai_config_repo.clone();
+        let state = state(ports);
+
+        // The read model is at version 2 and still shows the revoked pair; the
+        // aggregate has moved on (the client holds its version from a PATCH
+        // response, so it can be ahead of the projection).
+        let mut view = config_view(TEST_SUB);
+        view.version = AggregateVersion(2);
+        match slot {
+            "vision" => {
+                view.vision_provider = Some(LlmProvider::Ovhcloud);
+                view.vision_model = Some("qwen3-vl-30b-a3b".to_owned());
+                view.vision_vault_key_id = Some("projected-vision-key".to_owned());
+            }
+            _ => {
+                view.decision_provider = Some(LlmProvider::EURouter);
+                view.decision_model = Some("clef-flash".to_owned());
+                view.decision_vault_key_id = Some("projected-decision-key".to_owned());
+            }
+        }
+        let id = view.id;
+        repo.views.lock().await.insert(id, view);
+
+        let request: UpdateAiConfigRequest =
+            serde_json::from_value(raw).expect("the request deserializes");
+        assert_eq!(
+            request.version,
+            AggregateVersion(request_version),
+            "{label}: request version"
+        );
+
+        match expected_code {
+            Some(code) => {
+                let problem =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect_err(label)
+                        .into_problem();
+                assert_eq!(
+                    problem.status,
+                    StatusCode::FORBIDDEN.as_u16(),
+                    "{label}: status"
+                );
+                assert_eq!(problem.code, code, "{label}: code");
+                assert!(
+                    commands.updated.lock().await.is_empty(),
+                    "{label}: the command must not be dispatched"
+                );
+            }
+            None => {
+                let (status, _) =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect(label);
+                assert_eq!(status, StatusCode::OK, "{label}: status");
+                assert!(
+                    !commands.updated.lock().await.is_empty(),
+                    "{label}: a genuinely unchanged prompt-only save must still dispatch"
+                );
+            }
+        }
+    }
+}
+
+/// Issue #1013 (review finding round 4): the SHARED-key path. A secondary slot
+/// that reuses the extraction key is accepted without its own lookup, so it
+/// relies entirely on the primary pre-check. That check compares the key with
+/// the projection — a request ahead of a stale projection can resubmit the old
+/// (since revoked) primary key and pass it on to both slots.
+#[tokio::test]
+async fn update_ai_config_revalidates_a_shared_key_a_stale_projection_still_shows() {
+    // (label, request version, expected problem code — `None` = accepted)
+    let cases: [(&str, u64, Option<&str>); 2] = [
+        ("shared key, on the projected state (no lookup)", 2, None),
+        (
+            "shared key, ahead of the stale projection (revoked key re-checked)",
+            3,
+            Some("ai-config.vault-key-forbidden"),
+        ),
+    ];
+
+    for (label, request_version, expected_code) in cases {
+        let ports = FakePorts::default();
+        ports
+            .membership_repo
+            .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+            .await;
+        // The projection still shows `shared-key`, but the binding is GONE from
+        // the vault (revoked after it was written).
+        ports
+            .settings_repo
+            .by_vault_key
+            .lock()
+            .await
+            .remove("shared-key");
+        let commands = ports.ai_config_commands.clone();
+        let repo = ports.ai_config_repo.clone();
+        let state = state(ports);
+
+        let mut view = config_view(TEST_SUB);
+        view.version = AggregateVersion(2);
+        view.provider = LlmProvider::Neuralwatt;
+        view.vault_key_id = "shared-key".to_owned();
+        // Both secondary slots reuse the extraction key on the same provider —
+        // the shape that needs no lookup of its own.
+        view.vision_provider = Some(LlmProvider::Neuralwatt);
+        view.vision_model = Some("vision-model".to_owned());
+        view.vision_vault_key_id = Some("shared-key".to_owned());
+        view.decision_provider = Some(LlmProvider::Neuralwatt);
+        view.decision_model = Some("clef-flash".to_owned());
+        view.decision_vault_key_id = Some("shared-key".to_owned());
+        let id = view.id;
+        repo.views.lock().await.insert(id, view);
+
+        let raw = serde_json::json!({
+            "provider": "neuralwatt",
+            "assistant_model": "assistant-v2",
+            "image_model": null,
+            "prompts": {},
+            "vault_key_id": "shared-key",
+            "vision_provider": "neuralwatt",
+            "vision_model": "vision-model",
+            "vision_vault_key_id": "shared-key",
+            "decision_provider": "neuralwatt",
+            "decision_model": "clef-flash",
+            "decision_vault_key_id": "shared-key",
+            "version": request_version
+        });
+        let request: UpdateAiConfigRequest =
+            serde_json::from_value(raw).expect("the request deserializes");
+
+        match expected_code {
+            Some(code) => {
+                let problem =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect_err(label)
+                        .into_problem();
+                assert_eq!(
+                    problem.status,
+                    StatusCode::FORBIDDEN.as_u16(),
+                    "{label}: status"
+                );
+                assert_eq!(problem.code, code, "{label}: code");
+                assert!(
+                    commands.updated.lock().await.is_empty(),
+                    "{label}: the command must not be dispatched"
+                );
+            }
+            None => {
+                let (status, _) =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect(label);
+                assert_eq!(status, StatusCode::OK, "{label}: status");
+                assert!(
+                    !commands.updated.lock().await.is_empty(),
+                    "{label}: an on-projection save keeps the no-lookup path"
+                );
+            }
+        }
+    }
+}
+
+/// The Decision slot carries the same rule (its shape predates #1013, the
+/// guard is shared): provider and key arrive together, or not at all.
+#[tokio::test]
+async fn update_ai_config_rejects_a_half_supplied_decision_credential() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    let state = state(ports);
+
+    // A populated projection (provider + key) — the stale-read-model shape.
+    let mut view = config_view(TEST_SUB);
+    view.decision_provider = Some(LlmProvider::Neuralwatt);
+    view.decision_model = Some("clef-flash".to_owned());
+    view.decision_vault_key_id = Some("vault-key".to_owned());
+    let id = view.id;
+    repo.views.lock().await.insert(id, view);
+
+    let raw = serde_json::json!({
+        "provider": "neuralwatt",
+        "assistant_model": "assistant-v2",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "vault-key",
+        "decision_vault_key_id": "vault-key",
+        "version": 1
+    });
+    let request: UpdateAiConfigRequest =
+        serde_json::from_value(raw).expect("a key without a decision provider deserializes");
+
+    let problem = update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+        .await
+        .expect_err("a half-supplied decision pair is refused before the dispatch")
+        .into_problem();
+
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "ai-config.decision-incomplete");
+    assert!(
+        commands.updated.lock().await.is_empty(),
+        "the command must not be dispatched"
+    );
+}
+
+/// Issue #1013: same-key reuse is legal only within ONE provider account. A
+/// vision slot that names the extraction key for a DIFFERENT provider is
+/// refused at the API edge (409 `ai-config.provider-mismatch`) before any
+/// command is dispatched — the worker would otherwise authenticate an OVHcloud
+/// client with an OpenAI credential.
+#[tokio::test]
+async fn ai_config_create_rejects_a_vision_key_shared_across_providers() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    ports
+        .settings_repo
+        .bind_vault_key("text-vault-key", LlmProvider::OpenAI.as_str(), TEST_SUB)
+        .await;
+    let state = state(ports);
+
+    let problem = create_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "text-vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+            zdr_attested: false,
+            vision_provider: Some(LlmProvider::Ovhcloud),
+            vision_model: Some("qwen3-vl-30b-a3b".to_owned()),
+            vision_vault_key_id: Some("text-vault-key".to_owned()),
+            vision_zdr_attested: false,
+        }),
+    )
+    .await
+    .expect_err("the extraction key may only be reused within one provider")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-config.provider-mismatch");
+    assert!(
+        commands.created.lock().await.is_empty(),
+        "the command must not be dispatched"
     );
 }

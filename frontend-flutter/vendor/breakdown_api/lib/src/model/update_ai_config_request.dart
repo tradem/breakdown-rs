@@ -28,6 +28,10 @@ part 'update_ai_config_request.g.dart';
 /// * [reasoningEffort] - Omitted keeps the stored choice (an older client), `auto` resets it to the system default, a level replaces it. Deliberately not `Option<Option<..>>`: the generated Dart client omits `null` fields, so a reset would be unreachable from the app (2026-11-20 investigation).
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
+/// * [visionModel]
+/// * [visionProvider] - Vision slot (issue #1013), tri-state like the decision slot: an omitted field keeps the stored slot, `null` clears it, a value replaces it. The aggregate resolves the three fields as a WHOLE before validating, so a partial patch cannot persist half a slot.
+/// * [visionVaultKeyId]
+/// * [visionZdrAttested] - Attestation for the vision provider account (issue #1013). Omitted keeps the stored attestation **unless this request also replaces the vision credential** — the attestation describes ONE account's `ZDR Mode`, so it does not carry over to a different credential (the aggregate resolves it to `false`; re-assert `true` in the same request to carry it over).
 /// * [zdrAttested] - See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.  **Bound to the credential.** The attestation describes the `ZDR Mode` switch of ONE provider account, and nothing server-side can observe that switch. An update that changes `vault_key_id` (or the provider, which always requires a fresh key) therefore CLEARS a stored `true` when this field is omitted — a page image must never egress under a retention guarantee inherited from a different account. Re-assert `zdr_attested: true` in the same request to carry it over.
 @BuiltValue()
 abstract class UpdateAiConfigRequest
@@ -72,6 +76,21 @@ abstract class UpdateAiConfigRequest
   /// Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
   @BuiltValueField(wireName: r'version')
   int get version;
+
+  @BuiltValueField(wireName: r'vision_model')
+  String? get visionModel;
+
+  /// Vision slot (issue #1013), tri-state like the decision slot: an omitted field keeps the stored slot, `null` clears it, a value replaces it. The aggregate resolves the three fields as a WHOLE before validating, so a partial patch cannot persist half a slot.
+  @BuiltValueField(wireName: r'vision_provider')
+  LlmProvider? get visionProvider;
+  // enum visionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  @BuiltValueField(wireName: r'vision_vault_key_id')
+  String? get visionVaultKeyId;
+
+  /// Attestation for the vision provider account (issue #1013). Omitted keeps the stored attestation **unless this request also replaces the vision credential** — the attestation describes ONE account's `ZDR Mode`, so it does not carry over to a different credential (the aggregate resolves it to `false`; re-assert `true` in the same request to carry it over).
+  @BuiltValueField(wireName: r'vision_zdr_attested')
+  bool? get visionZdrAttested;
 
   /// See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.  **Bound to the credential.** The attestation describes the `ZDR Mode` switch of ONE provider account, and nothing server-side can observe that switch. An update that changes `vault_key_id` (or the provider, which always requires a fresh key) therefore CLEARS a stored `true` when this field is omitted — a page image must never egress under a retention guarantee inherited from a different account. Re-assert `zdr_attested: true` in the same request to carry it over.
   @BuiltValueField(wireName: r'zdr_attested')
@@ -180,6 +199,40 @@ class _$UpdateAiConfigRequestSerializer
       object.version,
       specifiedType: const FullType(int),
     );
+    // Tri-state field (issue #722): an unset value serializes as an
+    // explicit JSON `null` — the backend's clear signal. Never guarded.
+    yield r'vision_model';
+    yield object.visionModel == null
+        ? null
+        : serializers.serialize(
+            object.visionModel,
+            specifiedType: const FullType.nullable(String),
+          );
+    // Tri-state field (issue #722): an unset value serializes as an
+    // explicit JSON `null` — the backend's clear signal. Never guarded.
+    yield r'vision_provider';
+    yield object.visionProvider == null
+        ? null
+        : serializers.serialize(
+            object.visionProvider,
+            specifiedType: const FullType.nullable(LlmProvider),
+          );
+    // Tri-state field (issue #722): an unset value serializes as an
+    // explicit JSON `null` — the backend's clear signal. Never guarded.
+    yield r'vision_vault_key_id';
+    yield object.visionVaultKeyId == null
+        ? null
+        : serializers.serialize(
+            object.visionVaultKeyId,
+            specifiedType: const FullType.nullable(String),
+          );
+    if (object.visionZdrAttested != null) {
+      yield r'vision_zdr_attested';
+      yield serializers.serialize(
+        object.visionZdrAttested,
+        specifiedType: const FullType.nullable(bool),
+      );
+    }
     if (object.zdrAttested != null) {
       yield r'zdr_attested';
       yield serializers.serialize(
@@ -295,6 +348,38 @@ class _$UpdateAiConfigRequestSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.version = valueDes;
+          break;
+        case r'vision_model':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.visionModel = valueDes;
+          break;
+        case r'vision_provider':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(LlmProvider),
+          ) as LlmProvider?;
+          if (valueDes == null) continue;
+          result.visionProvider = valueDes;
+          break;
+        case r'vision_vault_key_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.visionVaultKeyId = valueDes;
+          break;
+        case r'vision_zdr_attested':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.visionZdrAttested = valueDes;
           break;
         case r'zdr_attested':
           final valueDes = serializers.deserialize(

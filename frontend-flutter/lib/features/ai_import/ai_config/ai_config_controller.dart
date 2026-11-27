@@ -1790,6 +1790,18 @@ class AiConfigController extends _$AiConfigController {
           ..decisionProvider = decisionProvider
           ..decisionModel = decisionProviderKey == null ? null : decisionModelId
           ..decisionVaultKeyId = decisionVaultKeyId
+          // Vision slot (issue #1013 review finding): the patched tri-state
+          // serializer emits an explicit JSON `null` for an UNSET vision
+          // field, and the backend reads `null` as "clear". Omitting the slot
+          // here would therefore wipe a stored vision pair on every save —
+          // including one written through another API client — and page images
+          // would silently fall back to the assistant pair. Resending the
+          // LOADED triple keeps it (an unchanged binding is not re-validated
+          // by either the edge or the aggregate). "Unchanged" and "clear" stay
+          // distinct: only the vision editor (issue #1013 V4) may send nulls.
+          ..visionProvider = config.visionProvider
+          ..visionModel = config.visionModel
+          ..visionVaultKeyId = config.visionVaultKeyId
           ..prompts.replace({
             if (scriptPrompt.isNotEmpty) 'script': scriptPrompt,
             if (schedulePrompt.isNotEmpty) 'schedule': schedulePrompt,

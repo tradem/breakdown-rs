@@ -59,6 +59,17 @@ curated vision models:
   opaque `vault_key_id`. A blank or malformed reference fails at the vault read
   (`fetch_key`/`settings_id_from_binding_key`), i.e. before the first provider request — never on
   the first page of a paid import.
+- **The vision slot (issue #1013).** `AiConfig` names the page-image pair separately from the text
+  pair: `vision_provider` + `vision_model` + `vision_vault_key_id` (+ `vision_zdr_attested`),
+  all-or-nothing like the `decision` triple. `vision_* = None` means "use the assistant pair", so a
+  configuration written before the slot existed behaves byte-identically. `image_model` is NOT the
+  vision slot — it is the diffusion *generation* seam (#673) and is read by no worker. Validation
+  happens in `core::ai::aggregate::validate_vision_config` at **save** time: a provider that fails
+  `vision_egress_compliant(vision_egress_policy_for_config(provider, vision_zdr_attested))` is
+  refused with `422 ai-config.vision-provider-unsupported`, and the extraction key may be reused
+  only when the vision provider IS the extraction provider (`422
+  ai-config.vision-vault-key-mismatch` otherwise). The worker wiring (which client serves the page)
+  follows in the next package of the same change.
 - **The ZDR attestation.** `AiConfig.zdr_attested` is the operator's confirmation that the provider
   ACCOUNT keeps no data. It is collected in the client's AI-config screen and persisted with the
   config together with the key reference (never inside the vault: the vault holds secrets only).

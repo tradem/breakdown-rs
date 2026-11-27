@@ -296,6 +296,29 @@ components:
           type: string
         version:
           $ref: '#/components/schemas/AggregateVersion'
+        vision_model:
+          type:
+          - string
+          - 'null'
+        vision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              Optional Vision slot (issue #1013): the provider, model and vault key
+              that carry PAGE IMAGES. `None`/`None`/`None` means "use the assistant
+              pair", which is the behaviour of every configuration that predates the
+              slot. Additive with `serde(default)`.
+          - type: 'null'
+        vision_vault_key_id:
+          type:
+          - string
+          - 'null'
+        vision_zdr_attested:
+          description: |-
+            The operator's zero-data-retention attestation for the VISION provider
+            account (issue #1013). Additive with `serde(default)`; separate from
+            `zdr_attested` because the vision provider can be a different account.
+          type: boolean
         zdr_attested:
           description: |-
             The operator's zero-data-retention attestation for this provider
@@ -2146,6 +2169,36 @@ components:
             the mistake is still cheap.
         vault_key_id:
           type: string
+        vision_model:
+          type:
+          - string
+          - 'null'
+        vision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              Optional Vision slot (issue #1013): the provider/model/credential that
+              carries PAGE IMAGES (page-streaming schedules and the VLM structural
+              zoning pass). Unset = "use the assistant pair", i.e. exactly the
+              behaviour of a configuration written before the slot existed.
+
+              `vision_vault_key_id` MAY equal `vault_key_id` when `vision_provider ==
+              provider` (same-key reuse) or reference a distinct active credential of
+              the vision provider owned by the caller.
+          - type: 'null'
+        vision_vault_key_id:
+          type:
+          - string
+          - 'null'
+        vision_zdr_attested:
+          description: |-
+            Operator attestation that the VISION provider ACCOUNT has zero data
+            retention enabled (issue #968 semantics, vision-scoped). Separate from
+            `zdr_attested` because it describes a different account as soon as the
+            vision provider differs from the extraction provider. A vision provider
+            that cannot carry page images is refused at save time (`422`
+            `ai-config.vision-provider-unsupported`), never on the first paid page.
+          type: boolean
         zdr_attested:
           description: |-
             Operator attestation that this provider ACCOUNT has zero data retention
@@ -5694,6 +5747,33 @@ components:
           type: string
         version:
           $ref: '#/components/schemas/AggregateVersion'
+        vision_model:
+          type:
+          - string
+          - 'null'
+        vision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              Vision slot (issue #1013), tri-state like the decision slot: an omitted
+              field keeps the stored slot, `null` clears it, a value replaces it. The
+              aggregate resolves the three fields as a WHOLE before validating, so a
+              partial patch cannot persist half a slot.
+          - type: 'null'
+        vision_vault_key_id:
+          type:
+          - string
+          - 'null'
+        vision_zdr_attested:
+          description: |-
+            Attestation for the vision provider account (issue #1013). Omitted keeps
+            the stored attestation **unless this request also replaces the vision
+            credential** — the attestation describes ONE account's `ZDR Mode`, so it
+            does not carry over to a different credential (the aggregate resolves it
+            to `false`; re-assert `true` in the same request to carry it over).
+          type:
+          - boolean
+          - 'null'
         zdr_attested:
           description: |-
             See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored
@@ -12019,6 +12099,31 @@ x-code-registry:
   status: 422
   title: Decision vault key reference must not be empty
   type: https://docs.breakdown.example/problems/ai-config.decision-vault-key-empty
+- code: ai-config.vision-incomplete
+  extensions: []
+  status: 422
+  title: Vision configuration incomplete
+  type: https://docs.breakdown.example/problems/ai-config.vision-incomplete
+- code: ai-config.vision-provider-unsupported
+  extensions: []
+  status: 422
+  title: Vision provider cannot carry page images
+  type: https://docs.breakdown.example/problems/ai-config.vision-provider-unsupported
+- code: ai-config.vision-model-empty
+  extensions: []
+  status: 422
+  title: Vision model must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.vision-model-empty
+- code: ai-config.vision-vault-key-empty
+  extensions: []
+  status: 422
+  title: Vision vault key reference must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.vision-vault-key-empty
+- code: ai-config.vision-vault-key-mismatch
+  extensions: []
+  status: 422
+  title: Vision vault key cannot be reused across providers
+  type: https://docs.breakdown.example/problems/ai-config.vision-vault-key-mismatch
 - code: ai-config.provider-mismatch
   extensions: []
   status: 409

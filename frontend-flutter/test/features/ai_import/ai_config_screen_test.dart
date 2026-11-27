@@ -1818,6 +1818,36 @@ void main() {
       );
     });
 
+    // --- Vision slot preservation (issue #1013) ---
+
+    testWidgets('a save resends the STORED vision slot instead of clearing it '
+        '(issue #1013 review)', (tester) async {
+      // The patched tri-state serializer emits an explicit JSON `null` for
+      // every UNSET vision field, and the backend reads `null` as "clear". A
+      // save that leaves them unset therefore wipes a Vision pair written
+      // through another client, and page images silently fall back to the
+      // assistant pair.
+      await setupContainer(
+        discoveryValue: Right([
+          _config().rebuild(
+            (b) => b
+              ..visionProvider = LlmProvider.ovhcloud
+              ..visionModel = 'qwen3-vl-30b-a3b'
+              ..visionVaultKeyId = 'vk-vision',
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      final sent = repo.lastUpdateRequest!;
+      expect(sent.visionProvider, LlmProvider.ovhcloud);
+      expect(sent.visionModel, 'qwen3-vl-30b-a3b');
+      expect(sent.visionVaultKeyId, 'vk-vision');
+    });
+
     // --- Reasoning effort (2026-11-20 output-budget investigation) ---
 
     testWidgets('the picker offers exactly the levels the selected model '

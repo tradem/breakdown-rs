@@ -34,6 +34,10 @@ part 'ai_config_view.g.dart';
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
+/// * [visionModel]
+/// * [visionProvider] - Optional Vision slot (issue #1013): the provider, model and vault key that carry PAGE IMAGES. `None`/`None`/`None` means \"use the assistant pair\", which is the behaviour of every configuration that predates the slot. Additive with `serde(default)`.
+/// * [visionVaultKeyId]
+/// * [visionZdrAttested] - The operator's zero-data-retention attestation for the VISION provider account (issue #1013). Additive with `serde(default)`; separate from `zdr_attested` because the vision provider can be a different account.
 /// * [zdrAttested] - The operator's zero-data-retention attestation for this provider account (issue #968). Additive with `serde(default)`: a view serialized before the field existed attests nothing. The client renders the toggle from this value, and the vision egress gate resolves `vision_egress_policy_for_config(provider, zdr_attested)` from it.
 @BuiltValue()
 abstract class AiConfigView
@@ -96,6 +100,21 @@ abstract class AiConfigView
   /// Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
   @BuiltValueField(wireName: r'version')
   int get version;
+
+  @BuiltValueField(wireName: r'vision_model')
+  String? get visionModel;
+
+  /// Optional Vision slot (issue #1013): the provider, model and vault key that carry PAGE IMAGES. `None`/`None`/`None` means \"use the assistant pair\", which is the behaviour of every configuration that predates the slot. Additive with `serde(default)`.
+  @BuiltValueField(wireName: r'vision_provider')
+  LlmProvider? get visionProvider;
+  // enum visionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  @BuiltValueField(wireName: r'vision_vault_key_id')
+  String? get visionVaultKeyId;
+
+  /// The operator's zero-data-retention attestation for the VISION provider account (issue #1013). Additive with `serde(default)`; separate from `zdr_attested` because the vision provider can be a different account.
+  @BuiltValueField(wireName: r'vision_zdr_attested')
+  bool? get visionZdrAttested;
 
   /// The operator's zero-data-retention attestation for this provider account (issue #968). Additive with `serde(default)`: a view serialized before the field existed attests nothing. The client renders the toggle from this value, and the vision egress gate resolves `vision_egress_policy_for_config(provider, zdr_attested)` from it.
   @BuiltValueField(wireName: r'zdr_attested')
@@ -219,6 +238,34 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
       object.version,
       specifiedType: const FullType(int),
     );
+    if (object.visionModel != null) {
+      yield r'vision_model';
+      yield serializers.serialize(
+        object.visionModel,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.visionProvider != null) {
+      yield r'vision_provider';
+      yield serializers.serialize(
+        object.visionProvider,
+        specifiedType: const FullType.nullable(LlmProvider),
+      );
+    }
+    if (object.visionVaultKeyId != null) {
+      yield r'vision_vault_key_id';
+      yield serializers.serialize(
+        object.visionVaultKeyId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.visionZdrAttested != null) {
+      yield r'vision_zdr_attested';
+      yield serializers.serialize(
+        object.visionZdrAttested,
+        specifiedType: const FullType(bool),
+      );
+    }
     if (object.zdrAttested != null) {
       yield r'zdr_attested';
       yield serializers.serialize(
@@ -371,6 +418,38 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
             specifiedType: const FullType(int),
           ) as int;
           result.version = valueDes;
+          break;
+        case r'vision_model':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.visionModel = valueDes;
+          break;
+        case r'vision_provider':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(LlmProvider),
+          ) as LlmProvider?;
+          if (valueDes == null) continue;
+          result.visionProvider = valueDes;
+          break;
+        case r'vision_vault_key_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.visionVaultKeyId = valueDes;
+          break;
+        case r'vision_zdr_attested':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.visionZdrAttested = valueDes;
           break;
         case r'zdr_attested':
           final valueDes = serializers.deserialize(

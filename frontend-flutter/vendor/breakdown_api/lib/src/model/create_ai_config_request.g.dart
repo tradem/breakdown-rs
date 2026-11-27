@@ -28,6 +28,14 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
   @override
   final String vaultKeyId;
   @override
+  final String? visionModel;
+  @override
+  final LlmProvider? visionProvider;
+  @override
+  final String? visionVaultKeyId;
+  @override
+  final bool? visionZdrAttested;
+  @override
   final bool? zdrAttested;
 
   factory _$CreateAiConfigRequest(
@@ -45,6 +53,10 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
       required this.provider,
       this.reasoningEffort,
       required this.vaultKeyId,
+      this.visionModel,
+      this.visionProvider,
+      this.visionVaultKeyId,
+      this.visionZdrAttested,
       this.zdrAttested})
       : super._();
   @override
@@ -70,6 +82,10 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
         provider == other.provider &&
         reasoningEffort == other.reasoningEffort &&
         vaultKeyId == other.vaultKeyId &&
+        visionModel == other.visionModel &&
+        visionProvider == other.visionProvider &&
+        visionVaultKeyId == other.visionVaultKeyId &&
+        visionZdrAttested == other.visionZdrAttested &&
         zdrAttested == other.zdrAttested;
   }
 
@@ -86,6 +102,10 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, reasoningEffort.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
+    _$hash = $jc(_$hash, visionModel.hashCode);
+    _$hash = $jc(_$hash, visionProvider.hashCode);
+    _$hash = $jc(_$hash, visionVaultKeyId.hashCode);
+    _$hash = $jc(_$hash, visionZdrAttested.hashCode);
     _$hash = $jc(_$hash, zdrAttested.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -104,6 +124,10 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
           ..add('provider', provider)
           ..add('reasoningEffort', reasoningEffort)
           ..add('vaultKeyId', vaultKeyId)
+          ..add('visionModel', visionModel)
+          ..add('visionProvider', visionProvider)
+          ..add('visionVaultKeyId', visionVaultKeyId)
+          ..add('visionZdrAttested', visionZdrAttested)
           ..add('zdrAttested', zdrAttested))
         .toString();
   }
@@ -161,6 +185,25 @@ class CreateAiConfigRequestBuilder
   String? get vaultKeyId => _$this._vaultKeyId;
   set vaultKeyId(String? vaultKeyId) => _$this._vaultKeyId = vaultKeyId;
 
+  String? _visionModel;
+  String? get visionModel => _$this._visionModel;
+  set visionModel(String? visionModel) => _$this._visionModel = visionModel;
+
+  LlmProvider? _visionProvider;
+  LlmProvider? get visionProvider => _$this._visionProvider;
+  set visionProvider(LlmProvider? visionProvider) =>
+      _$this._visionProvider = visionProvider;
+
+  String? _visionVaultKeyId;
+  String? get visionVaultKeyId => _$this._visionVaultKeyId;
+  set visionVaultKeyId(String? visionVaultKeyId) =>
+      _$this._visionVaultKeyId = visionVaultKeyId;
+
+  bool? _visionZdrAttested;
+  bool? get visionZdrAttested => _$this._visionZdrAttested;
+  set visionZdrAttested(bool? visionZdrAttested) =>
+      _$this._visionZdrAttested = visionZdrAttested;
+
   bool? _zdrAttested;
   bool? get zdrAttested => _$this._zdrAttested;
   set zdrAttested(bool? zdrAttested) => _$this._zdrAttested = zdrAttested;
@@ -182,6 +225,10 @@ class CreateAiConfigRequestBuilder
       _provider = $v.provider;
       _reasoningEffort = $v.reasoningEffort;
       _vaultKeyId = $v.vaultKeyId;
+      _visionModel = $v.visionModel;
+      _visionProvider = $v.visionProvider;
+      _visionVaultKeyId = $v.visionVaultKeyId;
+      _visionZdrAttested = $v.visionZdrAttested;
       _zdrAttested = $v.zdrAttested;
       _$v = null;
     }
@@ -219,6 +266,10 @@ class CreateAiConfigRequestBuilder
             reasoningEffort: reasoningEffort,
             vaultKeyId: BuiltValueNullFieldError.checkNotNull(
                 vaultKeyId, r'CreateAiConfigRequest', 'vaultKeyId'),
+            visionModel: visionModel,
+            visionProvider: visionProvider,
+            visionVaultKeyId: visionVaultKeyId,
+            visionZdrAttested: visionZdrAttested,
             zdrAttested: zdrAttested,
           );
     } catch (_) {

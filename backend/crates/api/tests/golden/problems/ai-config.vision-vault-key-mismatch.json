@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vision-vault-key-mismatch",
+  "detail": "Diese Berechtigung gehört zu einem anderen Anbieter. Die Assistenten-Berechtigung darf nur dann für Vision wiederverwendet werden, wenn beide denselben Anbieter nutzen.",
+  "status": 422,
+  "title": "Vision vault key cannot be reused across providers",
+  "type": "https://docs.breakdown.example/problems/ai-config.vision-vault-key-mismatch"
+}

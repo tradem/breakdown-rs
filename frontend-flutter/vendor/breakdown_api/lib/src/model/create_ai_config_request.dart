@@ -27,6 +27,10 @@ part 'create_ai_config_request.g.dart';
 /// * [provider]
 /// * [reasoningEffort] - Requested `reasoning_effort` for the assistant model (2026-11-20 investigation). `auto` = no explicit level. Only a pair that DECLARES the parameter may name a level — the aggregate answers `422` otherwise, while the mistake is still cheap.
 /// * [vaultKeyId]
+/// * [visionModel]
+/// * [visionProvider] - Optional Vision slot (issue #1013): the provider/model/credential that carries PAGE IMAGES (page-streaming schedules and the VLM structural zoning pass). Unset = \"use the assistant pair\", i.e. exactly the behaviour of a configuration written before the slot existed.  `vision_vault_key_id` MAY equal `vault_key_id` when `vision_provider == provider` (same-key reuse) or reference a distinct active credential of the vision provider owned by the caller.
+/// * [visionVaultKeyId]
+/// * [visionZdrAttested] - Operator attestation that the VISION provider ACCOUNT has zero data retention enabled (issue #968 semantics, vision-scoped). Separate from `zdr_attested` because it describes a different account as soon as the vision provider differs from the extraction provider. A vision provider that cannot carry page images is refused at save time (`422` `ai-config.vision-provider-unsupported`), never on the first paid page.
 /// * [zdrAttested] - Operator attestation that this provider ACCOUNT has zero data retention enabled (issue #968, ADR-041 `D2`). Required to let a provider whose ZDR guarantee is an account switch (Nebius) carry page images; every other provider is unaffected by the flag. Defaults to `false` — an unattested account keeps the vision egress gate fail-closed.
 @BuiltValue()
 abstract class CreateAiConfigRequest
@@ -67,6 +71,21 @@ abstract class CreateAiConfigRequest
 
   @BuiltValueField(wireName: r'vault_key_id')
   String get vaultKeyId;
+
+  @BuiltValueField(wireName: r'vision_model')
+  String? get visionModel;
+
+  /// Optional Vision slot (issue #1013): the provider/model/credential that carries PAGE IMAGES (page-streaming schedules and the VLM structural zoning pass). Unset = \"use the assistant pair\", i.e. exactly the behaviour of a configuration written before the slot existed.  `vision_vault_key_id` MAY equal `vault_key_id` when `vision_provider == provider` (same-key reuse) or reference a distinct active credential of the vision provider owned by the caller.
+  @BuiltValueField(wireName: r'vision_provider')
+  LlmProvider? get visionProvider;
+  // enum visionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  @BuiltValueField(wireName: r'vision_vault_key_id')
+  String? get visionVaultKeyId;
+
+  /// Operator attestation that the VISION provider ACCOUNT has zero data retention enabled (issue #968 semantics, vision-scoped). Separate from `zdr_attested` because it describes a different account as soon as the vision provider differs from the extraction provider. A vision provider that cannot carry page images is refused at save time (`422` `ai-config.vision-provider-unsupported`), never on the first paid page.
+  @BuiltValueField(wireName: r'vision_zdr_attested')
+  bool? get visionZdrAttested;
 
   /// Operator attestation that this provider ACCOUNT has zero data retention enabled (issue #968, ADR-041 `D2`). Required to let a provider whose ZDR guarantee is an account switch (Nebius) carry page images; every other provider is unaffected by the flag. Defaults to `false` — an unattested account keeps the vision egress gate fail-closed.
   @BuiltValueField(wireName: r'zdr_attested')
@@ -164,6 +183,34 @@ class _$CreateAiConfigRequestSerializer
       object.vaultKeyId,
       specifiedType: const FullType(String),
     );
+    if (object.visionModel != null) {
+      yield r'vision_model';
+      yield serializers.serialize(
+        object.visionModel,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.visionProvider != null) {
+      yield r'vision_provider';
+      yield serializers.serialize(
+        object.visionProvider,
+        specifiedType: const FullType.nullable(LlmProvider),
+      );
+    }
+    if (object.visionVaultKeyId != null) {
+      yield r'vision_vault_key_id';
+      yield serializers.serialize(
+        object.visionVaultKeyId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.visionZdrAttested != null) {
+      yield r'vision_zdr_attested';
+      yield serializers.serialize(
+        object.visionZdrAttested,
+        specifiedType: const FullType(bool),
+      );
+    }
     if (object.zdrAttested != null) {
       yield r'zdr_attested';
       yield serializers.serialize(
@@ -272,6 +319,38 @@ class _$CreateAiConfigRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.vaultKeyId = valueDes;
+          break;
+        case r'vision_model':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.visionModel = valueDes;
+          break;
+        case r'vision_provider':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(LlmProvider),
+          ) as LlmProvider?;
+          if (valueDes == null) continue;
+          result.visionProvider = valueDes;
+          break;
+        case r'vision_vault_key_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.visionVaultKeyId = valueDes;
+          break;
+        case r'vision_zdr_attested':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.visionZdrAttested = valueDes;
           break;
         case r'zdr_attested':
           final valueDes = serializers.deserialize(

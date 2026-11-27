@@ -17,6 +17,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.92.0] - Unreleased
+### Changed (issue #1013)
+
+- Migration `20261127000001_ai_config_vision_slot` adds four nullable/defaulted
+  columns to `ai_import.projection_ai_config` (`vision_provider`,
+  `vision_model`, `vision_vault_key_id`, `vision_zdr_attested`) — the read-model
+  half of the Vision slot. A row without the slot is indistinguishable from a
+  pre-#1013 row.
+- `projectors::ai_config` writes the four columns in both the `Created` upsert
+  and the `Updated` assignment (the aggregate emits the whole resolved slot, so
+  a cleared slot projects as NULL/NULL/NULL + FALSE).
+- `queries::ai_config::{find_by_id, list_for_user}` project the slot back into
+  `AiConfigView`; an unknown `vision_provider` string degrades to `None` with a
+  warning instead of failing the read (same posture as `decision_provider`).
+
 ## [0.91.0] - Unreleased
 ### Changed (issue #1007)
 

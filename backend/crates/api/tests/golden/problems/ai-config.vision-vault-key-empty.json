@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vision-vault-key-empty",
+  "detail": "Die Berechtigungsreferenz des Vision-Modells darf nicht leer sein.",
+  "status": 422,
+  "title": "Vision vault key reference must not be empty",
+  "type": "https://docs.breakdown.example/problems/ai-config.vision-vault-key-empty"
+}

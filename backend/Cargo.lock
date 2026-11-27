@@ -171,7 +171,7 @@ checksum = "2cb931c189b85683d69a5cfad41d4d418671e1ac413dd209f3f2fc31e3cfd902"
 
 [[package]]
 name = "api"
-version = "0.73.0"
+version = "0.74.0"
 dependencies = [
  "accept-language",
  "anyhow",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "breakdown_core"
-version = "0.80.0"
+version = "0.81.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3166,7 +3166,7 @@ checksum = "a588916bfdfd92e71cacef98a63d9b1f0d74d6599980d11894290e7ddefffcf7"
 
 [[package]]
 name = "infra"
-version = "0.91.0"
+version = "0.92.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
