@@ -125,6 +125,16 @@ impl From<ReasoningEffort> for ReasoningEffortChoice {
 /// `Some(&[])` never occurs: a pair that accepts the field accepts at least one
 /// value, and an empty slice would be an unreadable state for callers and the
 /// picker.
+///
+/// The table was re-read from the provider catalogues on **2026-11-26 (UTC)**
+/// (issue #1007): Neuralwatt `capabilities.reasoning_effort.accepted_efforts`,
+/// EURouter/OpenRouter `supported_parameters`, OpenCode/OpenCode Go
+/// `capabilities.reasoning.effort[]`. Only values represented by the closed
+/// [`ReasoningEffort`] enum are emitted — the provider-only `none`, `max` and
+/// `xhigh` stay unmodelled. Curated pairs whose catalogue lacks the parameter
+/// fall through to `None` rather than borrowing a sibling's set:
+/// `opencode-go/kimi-k3` (Go advertises only `max`), `kimi-k2.7-code`,
+/// `minimax-m3`, `mimo-v2.6-pro` (Go) and `minimax-m2.7` (OpenCode).
 pub fn supported_reasoning_efforts(
     provider: LlmProvider,
     model: &str,
@@ -140,43 +150,69 @@ pub fn supported_reasoning_efforts(
     /// OpenCode's `capabilities.reasoning.effort[]` for its GLM and Kimi
     /// endpoints is `[low, high, max]` — **no `medium`**.
     const LOW_HIGH: &[ReasoningEffort] = &[Low, High];
+    /// `deepseek-v4-pro` advertises `high` (plus the unmodelled `max`) alone.
+    const HIGH_ONLY: &[ReasoningEffort] = &[High];
 
     match (provider, model) {
         // --- Neuralwatt: `capabilities.reasoning_effort: true` on all thirteen
         // curated models, `accepted_efforts` including `minimal` on each. ---
-        (LlmProvider::Neuralwatt, "deepseek-v4.1-flash" | "deepseek-v4-flash")
-        | (
+        (
             LlmProvider::Neuralwatt,
-            "glm-5.3" | "glm-5.3-fast" | "glm-5.3-flex" | "glm-5.3-flash" | "glm-5.3-short",
+            "deepseek-v4.1-flash"
+            | "deepseek-v4.1-flash-flex"
+            | "glm-5.3"
+            | "glm-5.3-flex"
+            | "glm-5.3-flash"
+            | "glm-5.3-flash-flex"
+            | "kimi-k3.1-pro"
+            | "kimi-k3.1-pro-flex"
+            | "qwen3.6-35b"
+            | "qwen3.6-35b-fast"
+            | "qwen3.6-35b-flex"
+            | "qwen-3.8-27b"
+            | "qwen-3.8-27b-flex",
         ) => Some(ALL),
-        (LlmProvider::Neuralwatt, "kimi-k3" | "kimi-k3-fast" | "kimi-k3-flex") => Some(ALL),
-        (LlmProvider::Neuralwatt, "qwen3.6-35b" | "qwen3.6-35b-fast" | "qwen-3.8-27b") => Some(ALL),
 
         // --- EURouter: `supported_parameters` contains `reasoning_effort` for
-        // these four. `mistral-large-3` is deliberately absent: its list has no
+        // these five. `mistral-large-3` is deliberately absent: its list has no
         // `reasoning_effort`, and since #950 it is no longer curated but still
         // referenced by persisted configs (so the pair must stay unresolved
         // rather than silently matching something else). ---
         (
             LlmProvider::EURouter,
-            "mistral-large-4" | "mistral-small-4" | "mistral-medium-3.5" | "deepseek-v4-pro",
+            "mistral-large-4"
+            | "mistral-small-4"
+            | "mistral-medium-3.5"
+            | "deepseek-v4-pro"
+            | "deepseek-v4.1-flash-1017",
         ) => Some(BROAD),
 
         // --- OpenRouter: same `supported_parameters` shape. ---
         (
             LlmProvider::OpenRouter,
-            "openai/gpt-5-mini" | "deepseek/deepseek-v4-flash" | "deepseek/deepseek-v4.1-flash",
+            "openai/gpt-6-luna"
+            | "openai/gpt-5-mini"
+            | "deepseek/deepseek-v4-flash"
+            | "deepseek/deepseek-v4.1-flash",
         ) => Some(BROAD),
 
-        // --- OpenCode / -Go: explicit `capabilities.reasoning.effort[]`. ---
+        // --- OpenCode Go: explicit `capabilities.reasoning.effort[]`, and the
+        // ONLY provider where `kimi-k3` does not advertise `low`/`high`. ---
         (
-            LlmProvider::OpenCodeGo | LlmProvider::OpenCode,
-            "glm-5.2" | "glm-5.3" | "kimi-k3" | "minimax-m3" | "mimo-v2.6-pro",
+            LlmProvider::OpenCodeGo,
+            "deepseek-v4.1-flash" | "glm-5.3" | "glm-5.3-flash" | "kimi-k3.1-pro",
         ) => Some(LOW_HIGH),
+        (LlmProvider::OpenCodeGo, "deepseek-v4-pro") => Some(HIGH_ONLY),
+        (LlmProvider::OpenCodeGo, "grok-4.7") => Some(BROAD),
+
+        // --- OpenCode: same shape, different domain — `kimi-k3` here does
+        // advertise `low|high|max`. ---
         (
-            LlmProvider::OpenCodeGo | LlmProvider::OpenCode,
-            "grok-4.5" | "grok-4.6" | "kimi-k2.7-code" | "minimax-m2.7",
-        ) => Some(BROAD),
+            LlmProvider::OpenCode,
+            "deepseek-v4.1-flash" | "glm-5.3" | "glm-5.3-flash" | "kimi-k3.1-pro" | "kimi-k3",
+        ) => Some(LOW_HIGH),
+        (LlmProvider::OpenCode, "deepseek-v4-pro") => Some(HIGH_ONLY),
+        (LlmProvider::OpenCode, "grok-4.7") => Some(BROAD),
 
         // Everything else — OpenAI and Gemini publish no per-model parameter
         // metadata (unverified), Ollama has a different API, and a rotated-out

@@ -20,10 +20,13 @@ rust-version.workspace = true
 # in .cargo/mutants.toml (issue #267).
 test-support = []
 
-[dependencies]
-api = { path = "../api", version = "0.73.0" }
-breakdown_core = { path = "../core", version = "0.80.0" }
-infra = { path = "../infra", version = "0.91.0" }
+# This crate has no runtime code (`src/lib.rs` is a comment block only): the
+# single test target is what links anything, so every crate it uses belongs in
+# `[dev-dependencies]` (cargo 1.100's `unused_dependencies` lint, issue #995).
+# `api`, `infra` and `breakdown_core` used to sit in `[dependencies]` but no
+# target referenced them — the boundary checks read those manifests as text
+# (`toml` + `rust_arkitect`'s project scan), they never link the crates.
+[dev-dependencies]
 rust_arkitect = "0.3.7"
 toml = "1.1"
 

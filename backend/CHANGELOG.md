@@ -32,6 +32,57 @@ generated notes are never used.
 
 ## [Unreleased]
 
+### Changed
+
+- **AI catalogue rotation (issue #1007).** The curated assistant-LLM and
+  Decision-Model catalogues were re-checked on **2026-11-26 (UTC)** and
+  rotated. Verification is not uniform, and the difference matters for the next
+  refresh: OpenRouter, EURouter, Neuralwatt, `opencode`/`opencode-go` and
+  Ollama answered their live `/models` catalogues anonymously, while OpenAI and
+  Gemini do not (an anonymous first-party `GET /models` answers 401/403), so
+  those ids rest on the official model documentation plus the models.dev feed —
+  an authenticated first-party check of OpenAI and Gemini is still pending.
+  Rotated: OpenAI gained `gpt-6-luna` and
+  `gpt-6.1-terra` (rotating `gpt-5.6-terra`/`gpt-4.1-mini` out of
+  *new-configuration* curation), Gemini `gemini-3.8-flash`, OpenRouter
+  `openai/gpt-6-luna` (Decision: `liquid/d1` → `liquid/d1.2`), EURouter
+  `deepseek-v4.1-flash-1017` plus the now-listed Decision model `clef`,
+  Neuralwatt six flex/successor ids, and Ollama `qwen3.5:9b`. `opencode` and
+  `opencode-go` no longer share one arm — their live catalogues differ
+  (`mimo-v2.6-pro` is Go-only, `minimax-m2.7` is OpenCode-only), and so does the
+  reasoning metadata (`kimi-k3` advertises `low|high` on OpenCode and only the
+  provider-only `max` on Go). Every recommendation and every
+  `default_reasoning_effort` is unchanged (#950: a version number is not
+  quality evidence). **Legacy configurations remain valid:** no rotated-out id
+  lost its `default_allowlist` entry or its `curated_seed` pricing row, only
+  new-configuration curation moved; migration `20261126000001` seeds the 21 new
+  pricing rows and its down migration removes exactly those. No transport,
+  prompt, scoring-rubric, image-model or ADR-041 egress change.
+
+- **Rust toolchain / MSRV floor 1.99 → 1.100 (issue #995, ADR-020 D2).**
+  `[workspace.package] rust-version` is now `1.100`, the production builder
+  image moved to `rust:1.100-bookworm` (the floor keeps matching the builder,
+  as the `backend/Cargo.toml` comment requires), and the CI `msrv` job pins
+  `1.100.0` instead of `1.99.0`. Per ADR-020 D2 an MSRV bump is a **MAJOR**
+  change per crate; no crate is published and no deployment target exists yet,
+  so this is bookkeeping only — the crate versions at this release are
+  unchanged (ADR-020 D3 lockstep, `core → infra → api`, single coordinated
+  workspace change). The vendored `kameo_es` patches keep `rust-version =
+  "1.99"`: a dependency floor below the workspace floor is compatible and the
+  patches are not ours to bump.
+
+### Removed
+
+- **Four dependencies cargo 1.100's new `unused_dependencies` lint flagged**
+  (issue #995) — dead weight, not a behaviour change, no crate version bump:
+  `api`'s `fluent` umbrella crate (every call site uses `fluent-bundle` /
+  `fluent-syntax` directly), `infra`'s `rust-embed` (report templates are
+  embedded with `include_str!` since #642, `RustEmbed` is used nowhere), and
+  the `architecture_tests` link-time dependencies `api`, `infra` and
+  `breakdown_core` — that crate's `src/lib.rs` is a comment block and its
+  boundary checks read those manifests as text, so what little it links
+  (`rust_arkitect`, `toml`) now sits in `[dev-dependencies]`.
+
 ### Fixed
 
 - **CodeRabbitAI review, PR #993 (issue #974, nightly live vision smoke):**

@@ -3,6 +3,7 @@
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
 # Co-authored-by: gpt-5.6-luna (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Multi-stage build for the Breakdown RS API binary.
 # Used by docker-compose.prod.yml (ADR-016). Builds the `api` crate from the
@@ -10,7 +11,7 @@
 
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.99-bookworm AS builder
+FROM rust:1.100-bookworm AS builder
 
 WORKDIR /build
 

@@ -45,21 +45,30 @@ pub const fn is_decision_capable(provider: LlmProvider) -> bool {
 }
 
 /// Curated Decision Model IDs per provider (issue #722), refreshed against
-/// the live catalogs at the time of writing. All of them bill **zero output
-/// tokens** — a decision model emits no completion. Single source for the
-/// decision-models endpoint and the aggregate validation; legacy rotated-out
-/// IDs stay in the `ai_model_pricing` seed so persisted configs remain valid.
+/// the live catalogs on **2026-11-26 (UTC)** for issue #1007
+/// (`https://api.neuralwatt.com/v1/models`,
+/// `https://api.eurouter.ai/api/v1/models?output_modalities=decisions`,
+/// `https://openrouter.ai/api/v1/models?output_modalities=decisions`). All of
+/// them bill **zero output tokens** — a decision model emits no completion.
+/// Single source for the decision-models endpoint and the aggregate
+/// validation; legacy rotated-out IDs (`liquid/d1`) stay in the
+/// `ai_model_pricing` seed so persisted configs remain valid.
 #[must_use]
 pub fn curated_decision_model_ids(provider: LlmProvider) -> &'static [&'static str] {
     match provider {
         LlmProvider::Neuralwatt => &["clef-flash", "clef"],
-        LlmProvider::EURouter => &["clef-flash", "metis"],
+        // `clef` joined the EURouter decision catalogue on 2026-11-26.
+        LlmProvider::EURouter => &["clef-flash", "clef", "metis"],
+        // `liquid/d1` rotated to `liquid/d1.2` (same $0.02/1M input, zero output
+        // tokens). `perplexity/pplx-decider-flash-v1.2` stays: v1.3 is a free
+        // variant and not an automatic replacement under the privacy/reliability
+        // bar. Not a dump of all 45 listed models, and no `~…-latest` aliases.
         LlmProvider::OpenRouter => &[
             "cloudflare/clef-flash",
             "cloudflare/clef",
             "typesafe/jev-1.14",
             "perplexity/pplx-decider-flash-v1.2",
-            "liquid/d1",
+            "liquid/d1.2",
         ],
         // `LlmProvider` is `#[non_exhaustive]`; non-decision providers have
         // no curated decision models.

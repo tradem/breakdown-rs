@@ -24,24 +24,58 @@ fn decision_capable_providers_are_the_curated_three() {
 
 #[test]
 fn curated_decision_models_cover_the_issue_catalog() {
+    // Full ordered lists (issue #1007): the endpoint serves `curated_decision_model_ids`
+    // verbatim, so the order IS part of the observable catalogue.
     assert_eq!(
         curated_decision_model_ids(LlmProvider::Neuralwatt),
         &["clef-flash", "clef"]
     );
     assert_eq!(
         curated_decision_model_ids(LlmProvider::EURouter),
-        &["clef-flash", "metis"]
+        &["clef-flash", "clef", "metis"]
     );
-    assert!(curated_decision_model_ids(LlmProvider::OpenRouter).contains(&"cloudflare/clef-flash"));
-    assert!(curated_decision_model_ids(LlmProvider::OpenRouter).contains(&"typesafe/jev-1.14"));
-    // Non-decision providers have no curated decision models.
-    assert!(curated_decision_model_ids(LlmProvider::OpenAI).is_empty());
+    assert_eq!(
+        curated_decision_model_ids(LlmProvider::OpenRouter),
+        &[
+            "cloudflare/clef-flash",
+            "cloudflare/clef",
+            "typesafe/jev-1.14",
+            "perplexity/pplx-decider-flash-v1.2",
+            "liquid/d1.2",
+        ]
+    );
+    // Non-decision providers have no curated decision models at all.
+    for provider in [
+        LlmProvider::OpenAI,
+        LlmProvider::Gemini,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
+        LlmProvider::OpenCodeGo,
+        LlmProvider::OpenCode,
+        LlmProvider::Ollama,
+    ] {
+        assert!(
+            curated_decision_model_ids(provider).is_empty(),
+            "{provider:?} must not curate decision models"
+        );
+    }
     assert!(!is_curated_decision_model(LlmProvider::OpenAI, "clef"));
     assert!(is_curated_decision_model(
         LlmProvider::Neuralwatt,
         "clef-flash"
     ));
     assert!(!is_curated_decision_model(LlmProvider::Neuralwatt, "metis"));
+    // The rotated-out id is NOT curated any more (it stays priced, so a stored
+    // config keeps resolving) — the worker accepts it, the picker does not offer it.
+    assert!(!is_curated_decision_model(
+        LlmProvider::OpenRouter,
+        "liquid/d1"
+    ));
+    assert!(is_curated_decision_model(
+        LlmProvider::OpenRouter,
+        "liquid/d1.2"
+    ));
 }
 
 #[test]

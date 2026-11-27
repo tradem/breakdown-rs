@@ -706,31 +706,26 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
     // catalog must not brick unrelated updates — a prompt-only edit that
     // omits the decision fields resolves to the stored (no-longer-curated)
     // model and is accepted.
+    // The fixture is `liquid/d1`, the OpenRouter Decision Model that #1007
+    // rotated to `liquid/d1.2`: the stored id is deliberately absent from
+    // `curated_decision_model_ids(OpenRouter)` now, so a re-check of the
+    // UNCHANGED stored model would reject the update and fail this test.
     let cmd = CreateAiConfig {
-        decision_provider: Some(LlmProvider::Neuralwatt),
-        decision_model: Some("clef".into()),
+        decision_provider: Some(LlmProvider::OpenRouter),
+        decision_model: Some("liquid/d1".into()),
         decision_vault_key_id: Some("settings-abc:decision-key".into()),
         reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     let id = cmd.id;
-    // Simulate a rotation: `clef` no longer curated for Neuralwatt would
-    // fail a CHANGED model — but the omitted fields keep it, so the update
-    // is accepted. (Assert the negative direction first: the same model on
-    // a fresh create is still checked.)
     assert!(!super::super::decision::is_curated_decision_model(
-        LlmProvider::EURouter,
-        "clef"
+        LlmProvider::OpenRouter,
+        "liquid/d1"
     ));
-    let rotated_to_eurouter = CreateAiConfig {
-        decision_provider: Some(LlmProvider::EURouter),
-        decision_model: Some("clef".into()),
-        decision_vault_key_id: Some("settings-abc:decision-key".into()),
-        reasoning_effort: ReasoningEffortChoice::Auto,
-        ..make_create_cmd()
-    };
+    // Negative direction first: the very same rotated-out id is still checked
+    // and rejected on a fresh create (a CHANGED model is always curated-checked).
     AiConfig::given(vec![])
-        .when(rotated_to_eurouter)
+        .when(cmd.clone())
         .then_error(AiConfigError::DecisionModelUnknown);
 
     // Prompt-only update with the stored (rotated) model untouched → ok.
@@ -748,8 +743,8 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-456".into(),
             cost_display_preference: Some(CostDisplayPreference::Energy),
-            decision_provider: Some(LlmProvider::Neuralwatt),
-            decision_model: Some("clef".into()),
+            decision_provider: Some(LlmProvider::OpenRouter),
+            decision_model: Some("liquid/d1".into()),
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
             reasoning_effort: ReasoningEffortChoice::Auto,
             zdr_attested: Some(false),

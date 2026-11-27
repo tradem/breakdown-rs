@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: gemini-4-carbon (google)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #import "template.typ": *
 
@@ -13,7 +14,7 @@
 #table(
   columns: 3,
   table.header([Area], [Constraint], [Rationale and Reference]),
-  [Backend language], [Rust 1.99, edition 2024 (`unsafe_code = "deny"`)], [Memory safety without garbage collection (#adr-ref(num: "020", slug: "rust-component-versioning", title: "Rust Component Versioning"))],
+  [Backend language], [Rust 1.100, edition 2024 (`unsafe_code = "deny"`)], [Memory safety without garbage collection (#adr-ref(num: "020", slug: "rust-component-versioning", title: "Rust Component Versioning"))],
   [Backend crates], [`core`, `infra`, `api`, `architecture`, `integration-tests`, `test_support`, `fuzz-targets`], [Compile-time and AST boundary checks (#adr-ref(num: "001", slug: "hexagonal-architecture", title: "Hexagonal Architecture"), #adr-ref(num: "017", slug: "architecture-testing-strategy", title: "Architecture Testing"))],
   [Write persistence], [SierraDB 0.3.1 over RESP3 + vendored `kameo_es` 0.2], [Append-only event streams and reservation claims (#adr-ref(num: "015", slug: "sierradb-event-store-postgres-projections", title: "SierraDB + PG Split"), #adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate-uniqueness", title: "Reservation Streams"))],
   [Read persistence], [PostgreSQL 16 with `sqlx` 0.9], [Flat SQL projections, `ai_import` queue, and `LISTEN/NOTIFY` hub (#adr-ref(num: "015", slug: "sierradb-event-store-postgres-projections", title: "SierraDB + PG Split"))],
