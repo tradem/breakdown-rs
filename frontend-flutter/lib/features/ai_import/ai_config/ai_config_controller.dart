@@ -947,19 +947,27 @@ class AiConfigController extends _$AiConfigController {
       provider: providerKey,
       secret: secret,
     );
-    final CredentialHandoff credential;
-    switch (outcome) {
-      case HandoffSucceeded(:final handoff):
-        credential = handoff;
-      case HandoffFailed(:final error, :final created):
-        if (created != null) {
-          unawaited(
-            _rollbackCredentialById(created.id, created.version, scheduler),
-          );
-        }
-        if (ref.mounted) state = state.copyWith(commandError: error);
-        return Left(error);
+    if (outcome case HandoffFailed(:final error, :final created)) {
+      if (created != null) {
+        unawaited(
+          _rollbackCredentialById(created.id, created.version, scheduler),
+        );
+      }
+      if (ref.mounted) state = state.copyWith(commandError: error);
+      return Left(error);
     }
+    // Unreachable (the sealed hierarchy has exactly two members and the
+    // failure case returned above); the check is what promotes [outcome].
+    if (outcome is! HandoffSucceeded) {
+      return const Left(ProblemError(code: 'ai_config.incomplete_selection'));
+    }
+    // `credential` is deliberately initialized AT ITS DECLARATION rather than
+    // assigned inside a `switch` case: a deferred `final` that is captured by
+    // one of the closures below aborts the AOT register allocator on Dart
+    // 3.14.0 (`linearscan.cc: 3013: error: unreachable code`,
+    // dart-lang/sdk#64917) — it fails every release build of this app while
+    // the JIT stays green. Do not "tidy" this back into a switch.
+    final credential = outcome.handoff;
 
     // Decision Model credential resolution (issue #723): the optional
     // scoring slot shares the extraction credential when the providers

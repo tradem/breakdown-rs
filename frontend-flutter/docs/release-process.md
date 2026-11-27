@@ -147,6 +147,33 @@ gate and the rest of the gates run, and only then tag.
 Do not "reduce" the probe file and do not remove the closure capture: every
 element of that shape is load-bearing for the repro.
 
+**Measured 2026-11-27: the probe is necessary but NOT sufficient.** On the
+pinned Dart 3.14.0 the probe *compiles* — so the gate reported `state=fixed`
+for an SDK whose snapshotter still aborts. The gap is the call site: the probe
+hands the capturing closure to a statically resolved, `vm:never-inline`
+helper, and the register allocator is happy; the reductions that actually
+crash hand it to a sink the compiler cannot see through (upstream's
+`print(() => runId)`, and in this app the `Either.match(...)` closures of
+`AiConfigController.create`). A shape probe can therefore never prove that
+*this* app compiles. The authority is an app-wide release AOT compile, which
+is cheap enough to run by hand and names the offending function on the first
+failure:
+
+```bash
+# 1. release kernel only (no Gradle, no Android SDK, no keystore, ~40 s)
+flutter assemble --no-version-check --output=/tmp/fbuild \
+  -dTargetFile=lib/main.dart -dTargetPlatform=android -dBuildMode=release \
+  -dTrackWidgetCreation=false -dTreeShakeIcons=true -dFlavor=dev \
+  -dAndroidArchs="android-x64" -dMinSdkVersion=24 kernel_snapshot_program
+# 2. AOT-compile it with the SDK's own compiler (~40 s)
+dart compile aot-snapshot .dart_tool/flutter_build/*/app.dill -o /tmp/app.aot
+# crash report line: "Crash occurred when compiling ... in AOT mode in
+# AllocateRegisters pass" — that is the function whose shape to rewrite
+```
+
+Prefer that over trusting the probe whenever the pin moves or a controller
+grows a `switch` over a sealed type with a deferred `final`.
+
 ## Installing (testers)
 
 Download the APK for your device architecture (virtually all modern
