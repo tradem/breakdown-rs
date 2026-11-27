@@ -291,6 +291,31 @@ impl LlmClient for OllamaChatClient {
         .with_billed_usage(billed))
     }
 
+    /// Zone labels for one rendered page (issue #1013).
+    ///
+    /// One request, no in-client parse retry: the WORKER wraps this call in
+    /// `retry_bounded`, and a structural helper that answers nonsense must not
+    /// spend the paid-extraction budget re-asking. No egress gate is needed —
+    /// Ollama is local, so no byte leaves the host (ADR-041 `D2`) — but a
+    /// misrouted request still fails closed.
+    async fn chat_vision_zone_labels(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::ZoneLabelAnswer>, DomainError> {
+        if req.provider != LlmProvider::Ollama {
+            return Err(DomainError::validation(
+                "Ollama client received a non-Ollama vision request",
+            ));
+        }
+        let (content, usage) = self.request_vision_once(req).await?;
+        let answer = serde_json::from_str::<crate::ai::client::ZoneLabelAnswerSchema>(&content)
+            .map_err(|error| {
+                DomainError::validation(format!("Ollama returned invalid zone labels: {error}"))
+                    .with_billed_usage(vec![usage])
+            })?;
+        Ok(LlmCallOutcome::from_calls(answer.into_core(), vec![usage]))
+    }
+
     async fn chat_vision_constrained(
         &self,
         req: &LlmVisionRequest,

@@ -5744,3 +5744,102 @@ fn repeated_paired_names_consume_all_their_lines() {
         extracted.legend_entries
     );
 }
+
+// ===========================================================================
+// Issue #1013 — `extract_scenes_with_zones`: the zoning decision stays outside
+// the pure slicer
+// ===========================================================================
+
+use super::{ZONE_DETECTION_FIELD, extract_scenes_with_zones};
+use crate::ai::document::{DocumentZones, PageZone, classify_document_zones};
+use crate::ai::preview::is_scene_heading;
+
+/// Parity: feeding `extract_scenes_with_zones` the verdict the deterministic
+/// pass would have produced yields the SAME segmentation as the wrapper — the
+/// VLM path is a different PRODUCER of zones, not a second slicer.
+#[test]
+fn an_explicit_zone_plan_segments_exactly_like_the_deterministic_wrapper() {
+    let document = zoning_fixture(6, 4);
+    let mut zones = classify_document_zones(&document, is_scene_heading);
+    if !zones.has_script_body() {
+        zones.widen_to_script_body();
+    }
+    let explicit = extract_scenes_with_zones(&document, &zones);
+    let wrapper = super::extract_scenes_from_structured(&document);
+    assert_eq!(
+        explicit.chunks.len(),
+        wrapper.chunks.len(),
+        "the same plan must produce the same chunk count"
+    );
+    assert_eq!(
+        explicit.plan.canonical_form(),
+        wrapper.plan.canonical_form(),
+        "and the same canonical plan (the fingerprint input)"
+    );
+    assert_eq!(explicit.uncertainties, wrapper.uncertainties);
+}
+
+/// A widening verdict is no longer silent (issue #1013): it records exactly one
+/// non-blocking diagnostic under the stable `zone_detection` field.
+#[test]
+fn a_widened_verdict_records_one_non_blocking_zone_detection_diagnostic() {
+    let document = zoning_fixture(6, 4);
+    let mut zones = classify_document_zones(&document, is_scene_heading);
+    zones.widen_to_script_body();
+    let segmented = extract_scenes_with_zones(&document, &zones);
+    let diagnostics: Vec<_> = segmented
+        .uncertainties
+        .iter()
+        .filter(|uncertainty| uncertainty.field == ZONE_DETECTION_FIELD)
+        .collect();
+    assert_eq!(diagnostics.len(), 1, "exactly one diagnostic");
+    assert_eq!(
+        diagnostics[0].kind,
+        crate::ai::preview::UncertaintyKind::DroppedRow,
+        "a degraded scene list must not gate the apply"
+    );
+
+    // A recognised document records NONE.
+    let mut zones = classify_document_zones(&document, is_scene_heading);
+    if !zones.has_script_body() {
+        zones.widen_to_script_body();
+    }
+    if !zones.fell_back_to_script_body() {
+        let clean = extract_scenes_with_zones(&document, &zones);
+        assert!(
+            clean
+                .uncertainties
+                .iter()
+                .all(|uncertainty| uncertainty.field != ZONE_DETECTION_FIELD),
+            "a recognised template must not warn"
+        );
+    }
+}
+
+/// A plan records its producer for diagnostics — and the producer is NOT part of
+/// the canonical form, so two agreeing plans keep one fingerprint.
+#[test]
+fn the_plan_source_is_diagnostic_only() {
+    use crate::ai::document::{PlanSource, StructuralPlan};
+    let mut plan = StructuralPlan::default();
+    let deterministic = plan.canonical_form();
+    plan.set_source(PlanSource::Vlm);
+    assert_eq!(plan.source(), PlanSource::Vlm);
+    assert_eq!(
+        plan.canonical_form(),
+        deterministic,
+        "the digest input must not change when only the producer changed"
+    );
+}
+
+/// The `PageZone` import keeps the module honest if the enum is renamed.
+#[test]
+fn the_zone_enum_still_has_a_script_body_variant() {
+    assert!(PageZone::ScriptBody.is_script_body());
+    assert_eq!(
+        DocumentZones::uniform(1, PageZone::ScriptBody)
+            .pages()
+            .len(),
+        1
+    );
+}

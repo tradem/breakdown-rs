@@ -17,6 +17,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.95.0] - Unreleased
+### Added (issue #1013)
+
+- The bounded VLM structural-zoning pass in the script worker: when the
+  deterministic Pass 0 recognises no `ScriptBody` page
+  (`DocumentZones::fell_back_to_script_body`), the worker asks the configured
+  vision pair to LABEL the pages — one rendered page at a time, bounded by
+  `AI_IMPORT_MAX_ZONING_PAGES` (default 12, `0` disables) and by
+  `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`.
+- Fail-open by contract: a denial, a timeout, a rejected answer, an exhausted
+  budget or an adapter that cannot render (`AI_DOCUMENT_PARSER=legacy-pdftotext`
+  refuses `render_page` by name) ends in one `warn!` and today's widened
+  segmentation. A successful plan marks `StructuralPlan::source = vlm`.
+- `chat_vision_zone_labels` implemented in both transports (OpenAI-compatible
+  with the same pre-egress gate as the schedule page path, Ollama local with a
+  fail-closed provider check). `request_vision_decoded` now takes the fallback
+  schema as a parameter, because it serves two answer shapes.
+
 ## [0.94.0] - Unreleased
 ### Added (issue #1013)
 

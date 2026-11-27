@@ -1035,3 +1035,145 @@ fn kerning_normalization_keeps_repeated_spaces_byte_identical() {
         "Mikko Rantala  geht"
     );
 }
+
+// ===========================================================================
+// Issue #1013 — the VLM zone-label answer (labels and anchors only)
+// ===========================================================================
+
+use super::{ZoneLabelAnswer, ZoneLabelError, parse_block_anchor, parse_zone_label};
+
+fn zone_answer(pages: &[(u32, &str)]) -> ZoneLabelAnswer {
+    ZoneLabelAnswer {
+        pages: pages
+            .iter()
+            .map(|(page_number, zone)| super::ZoneLabelPage {
+                page_number: *page_number,
+                zone: (*zone).to_owned(),
+                confidence: None,
+                anchors: Vec::new(),
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn a_zone_answer_becomes_a_verdict_covering_every_page() {
+    let document = multi_zone_fixture();
+    let answer = zone_answer(&[(1, "title_page"), (2, "front_matter"), (3, "script_body")]);
+    let zones = answer
+        .validate(&document)
+        .expect("a complete answer validates");
+    assert_eq!(zones.zone_of(1), super::PageZone::TitlePage);
+    assert_eq!(zones.zone_of(2), super::PageZone::FrontMatter);
+    assert_eq!(zones.zone_of(3), super::PageZone::ScriptBody);
+    assert!(
+        !zones.fell_back_to_script_body(),
+        "an answered document was classified, not widened"
+    );
+}
+
+#[test]
+fn prose_in_a_zone_answer_is_structurally_discarded() {
+    // A model that also returns transcribed text must not be able to leak it
+    // into a chunk: the type has no field to hold it, so serde drops it.
+    let payload = serde_json::json!({
+        "pages": [
+            {"page_number": 1, "zone": "script_body", "text": "SZENE 1 — INNEN ..."}
+        ]
+    });
+    let answer: ZoneLabelAnswer = serde_json::from_value(payload).expect("prose is ignored");
+    assert_eq!(answer.pages.len(), 1);
+    assert_eq!(answer.pages[0].zone, "script_body");
+    assert!(!serde_json::to_string(&answer).unwrap().contains("SZENE 1"));
+}
+
+#[test]
+fn an_incomplete_duplicated_or_unknown_zone_answer_is_refused() {
+    let document = multi_zone_fixture();
+    // A missing page would silently narrow the document.
+    assert_eq!(
+        zone_answer(&[(1, "script_body"), (2, "script_body")]).validate(&document),
+        Err(ZoneLabelError::MissingPage(3))
+    );
+    // A duplicate is ambiguous, not "last one wins".
+    assert_eq!(
+        zone_answer(&[
+            (1, "script_body"),
+            (1, "cast_list"),
+            (2, "script_body"),
+            (3, "script_body")
+        ])
+        .validate(&document),
+        Err(ZoneLabelError::DuplicatePage(1))
+    );
+    // A page the document does not have.
+    assert_eq!(
+        zone_answer(&[
+            (1, "script_body"),
+            (2, "script_body"),
+            (3, "script_body"),
+            (9, "script_body")
+        ])
+        .validate(&document),
+        Err(ZoneLabelError::UnknownPage(9))
+    );
+    // An invented zone is not a classification.
+    assert_eq!(
+        zone_answer(&[(1, "appendix"), (2, "front_matter"), (3, "script_body")])
+            .validate(&document),
+        Err(ZoneLabelError::UnknownZone {
+            page_number: 1,
+            zone: "appendix".to_owned(),
+        })
+    );
+    // An anchor outside the document's BlockAnchor space would cut a chunk at a
+    // line that does not exist.
+    let mut answer = zone_answer(&[(1, "title_page"), (2, "front_matter"), (3, "script_body")]);
+    answer.pages[2].anchors = vec!["P03.B99".to_owned()];
+    assert_eq!(
+        answer.validate(&document),
+        Err(ZoneLabelError::UnknownAnchor {
+            page_number: 3,
+            anchor: "P03.B99".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn zone_labels_and_anchors_round_trip_through_their_wire_spelling() {
+    assert_eq!(
+        parse_zone_label("SCRIPT_BODY"),
+        Some(super::PageZone::ScriptBody)
+    );
+    assert_eq!(
+        parse_zone_label(" front_matter "),
+        Some(super::PageZone::FrontMatter)
+    );
+    assert_eq!(parse_zone_label("appendix"), None);
+    assert_eq!(
+        parse_block_anchor("P04.B03"),
+        Some(super::BlockAnchor::new(4, 3))
+    );
+    assert_eq!(parse_block_anchor("4.3"), None);
+    assert_eq!(parse_block_anchor("P04.Bxx"), None);
+}
+
+#[test]
+fn a_validated_answer_carries_its_real_anchors() {
+    let document = multi_zone_fixture();
+    let mut answer = zone_answer(&[(1, "title_page"), (2, "front_matter"), (3, "script_body")]);
+    let anchors: Vec<String> = document.pages[2]
+        .blocks
+        .iter()
+        .map(|block| block.id.to_string())
+        .collect();
+    assert!(
+        !anchors.is_empty(),
+        "the fixture body page must have blocks"
+    );
+    answer.pages[2].anchors = anchors;
+    answer.validate(&document).expect("real anchors validate");
+    let parsed = answer.anchors();
+    assert!(!parsed.is_empty());
+    assert!(parsed.iter().all(|anchor| anchor.page_number == 3));
+}

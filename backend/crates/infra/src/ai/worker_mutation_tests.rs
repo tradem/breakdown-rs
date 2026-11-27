@@ -335,6 +335,7 @@ async fn script_worker_returns_false_when_no_jobs() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
 
     let result = worker
@@ -406,6 +407,7 @@ async fn script_worker_skips_wrong_kind() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
 
     let result = worker
@@ -464,6 +466,7 @@ async fn start_heartbeat_returns_none_without_lease() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
 
     let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
@@ -493,6 +496,7 @@ async fn start_heartbeat_returns_some_with_lease() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
 
     let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
@@ -603,6 +607,7 @@ fn script_worker<C: LlmClient + 'static>(
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     }
 }
 
@@ -728,6 +733,7 @@ async fn script_preview_stores_the_block_the_document_states() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
     let job = claim_script_job(&queue).await;
 

@@ -18,6 +18,33 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.83.0] - Unreleased
+### Added (issue #1013)
+
+- `ai::preview::extract_scenes_with_zones(document, &zones)`: the slicer takes an
+  ALREADY DECIDED zone plan, and `extract_scenes_from_structured` delegates to it.
+  The zoning decision therefore stays outside the pure slicer, so the VLM
+  structural pass is a different PRODUCER of zones, not a second slicer —
+  verbatim block slicing, header/footer/continuation exclusion, `SceneIndex`
+  reconciliation and the cast directory are identical on both paths.
+- `ai::document::{ZoneLabelAnswer, ZoneLabelPage, ZoneLabelError}`: the VLM
+  structural answer. **Labels and anchors only** — the type has no prose field,
+  so a model that transcribes the page cannot leak it into a chunk (`D3`).
+  `validate(&document)` refuses an empty answer, a missing/duplicated/unknown
+  page number, an unknown zone and an anchor outside the document's
+  `BlockAnchor` space; `parse_zone_label` / `parse_block_anchor` are the wire
+  spellings.
+- `StructuralPlan::source` + `PlanSource` (`deterministic` | `vlm`), diagnostic
+  only: deliberately NOT part of `canonical_form`, so the `#871` fingerprint does
+  not change when only the producer changed.
+- A widened verdict now records ONE non-blocking `Uncertainty { field:
+  "zone_detection" }` (`ZONE_DETECTION_FIELD`): the silent widening the issue
+  reports is visible in the preview from now on.
+- `LlmClient::chat_vision_zone_labels` port method (defaulted to a `validation`
+  error, so a client without a vision transport simply cannot answer).
+- `is_scene_heading` is exported: a caller that decides zones outside the slicer
+  must classify with the SAME detector, or the plan and the cuts disagree.
+
 ## [0.82.0] - Unreleased
 ### Added (issue #1013)
 

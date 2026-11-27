@@ -423,11 +423,13 @@ impl OpenAiCompatibleChatClient {
         &self,
         req: &LlmVisionRequest,
         schema_name: &str,
+        // The schema to send when the caller supplied none. Parameterized since
+        // issue #1013: this helper now serves TWO answer shapes (a schedule page
+        // and a zone-label plan), so a hardcoded fallback would send the wrong
+        // schema and the model would answer the wrong question.
+        fallback_schema: fn() -> serde_json::Value,
     ) -> Result<LlmCallOutcome<T>, DomainError> {
-        let schema = req
-            .response_schema
-            .clone()
-            .unwrap_or_else(strict_schema::<SchedulePageExtractionSchema>);
+        let schema = req.response_schema.clone().unwrap_or_else(fallback_schema);
         let data_uri = format!(
             "data:image/png;base64,{}",
             BASE64.encode(&req.page.png_bytes)
@@ -673,12 +675,95 @@ impl LlmClient for OpenAiCompatibleChatClient {
             ));
         }
         let decoded = self
-            .request_vision_decoded::<SchedulePageExtractionSchema>(req, "schedule_page")
+            .request_vision_decoded::<SchedulePageExtractionSchema>(
+                req,
+                "schedule_page",
+                strict_schema::<SchedulePageExtractionSchema>,
+            )
             .await?;
         let calls = decoded.calls().to_vec();
         let finish_reason = decoded.finish_reason().map(str::to_owned);
         let output = decoded.output.into_core()?;
         Ok(LlmCallOutcome::from_calls(output, calls).with_finish_reason(finish_reason))
+    }
+
+    /// Zone labels for one rendered page (issue #1013, ADR-041 `D3`).
+    ///
+    /// Same pre-egress gate as the schedule page path — a zone question carries
+    /// a page image exactly like an extraction question does, so the policy
+    /// check cannot be skipped for it. The answer is decoded through
+    /// [`ZoneLabelAnswerSchema`], which has no prose field: a model that
+    /// transcribes the page cannot leak it into a chunk.
+    async fn chat_vision_zone_labels(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::ZoneLabelAnswer>, DomainError> {
+        if !vision_egress_compliant(vision_egress_policy_for_config(
+            self.provider,
+            req.zdr_attested,
+        )) {
+            return Err(DomainError::validation(format!(
+                "provider {:?} does not declare Zero Data Retention, no training \
+                 on inputs, and EU data residency (or is missing the AI config's \
+                 ZDR attestation); multimodal page-image egress is refused \
+                 (ADR-041 D2)",
+                self.provider
+            )));
+        }
+        if req.provider != self.provider {
+            return Err(DomainError::validation(
+                "LLM request provider does not match configured client",
+            ));
+        }
+        let decoded = self
+            .request_vision_decoded::<ZoneLabelAnswerSchema>(
+                req,
+                "zone_labels",
+                strict_schema::<ZoneLabelAnswerSchema>,
+            )
+            .await?;
+        let calls = decoded.calls().to_vec();
+        let finish_reason = decoded.finish_reason().map(str::to_owned);
+        let output = decoded.output.into_core();
+        Ok(LlmCallOutcome::from_calls(output, calls).with_finish_reason(finish_reason))
+    }
+}
+
+/// Provider-facing shape of a zone-label answer (issue #1013).
+///
+/// Deliberately NARROWER than the model might answer: unknown members are
+/// ignored by serde, and there is no prose field to ignore them into. `zone` is
+/// a free string because validation (and its specific error) belongs to
+/// `core::ai::document::ZoneLabelAnswer::validate`, not to the transport.
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+pub(crate) struct ZoneLabelAnswerSchema {
+    pages: Vec<ZoneLabelPageSchema>,
+}
+
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+pub(crate) struct ZoneLabelPageSchema {
+    page_number: u32,
+    zone: String,
+    #[serde(default)]
+    confidence: Option<String>,
+    #[serde(default)]
+    anchors: Vec<String>,
+}
+
+impl ZoneLabelAnswerSchema {
+    pub(crate) fn into_core(self) -> breakdown_core::ai::ZoneLabelAnswer {
+        breakdown_core::ai::ZoneLabelAnswer {
+            pages: self
+                .pages
+                .into_iter()
+                .map(|page| breakdown_core::ai::ZoneLabelPage {
+                    page_number: page.page_number,
+                    zone: page.zone,
+                    confidence: page.confidence,
+                    anchors: page.anchors,
+                })
+                .collect(),
+        }
     }
 }
 

@@ -25,8 +25,8 @@ use breakdown_core::ai::{
     ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry, TelemetryApplyState,
     UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
     UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
-    draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured, mapping_kind,
-    max_rendered_total_bytes_from_env, merge_schedule_to_scenes, neighbor_brackets,
+    draft_row_ref, ensure_merge_applyable, extract_scenes_with_zones, is_scene_heading,
+    mapping_kind, max_rendered_total_bytes_from_env, merge_schedule_to_scenes, neighbor_brackets,
     normalize_kerning, parse_script_day, plan_scene_apply, render_document_context,
     render_schedule_carry_over_context, render_schedule_page_spatial_hint,
     resolve_character_category, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
@@ -294,6 +294,14 @@ pub struct ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     /// pre-#871 path — every attempt starts at chunk 0 — which is also what the
     /// worker test harnesses use.
     pub chunks: Option<Arc<dyn AiImportChunkStore>>,
+    /// The page-image pair, used ONLY by the bounded structural-zoning pass
+    /// (issue #1013). `None` means the deterministic Pass 0 is the only
+    /// producer of zones — the pre-#1013 behaviour.
+    ///
+    /// The same slot serves both document kinds: a schedule sends its pages
+    /// through it, a script asks it to LABEL pages when the deterministic pass
+    /// recognised no script body at all.
+    pub vision: Option<ScheduleVision>,
 }
 
 /// Why a claimed job has — or has not — a Decision Model scoring pass
@@ -650,9 +658,169 @@ where
             .extractor
             .extract(pdf_bytes, breakdown_core::ai::ExtractionOptions::default())
             .await?;
-        let segmented = extract_scenes_from_structured(&document);
+        let segmented = self
+            .segment_with_optional_zones(job, worker_id, pdf_bytes, &document)
+            .await;
         self.process_segmented_with_cast(job, worker_id, &segmented, existing_season_cast)
             .await
+    }
+
+    /// Segment a document, running the bounded VLM structural-zoning pass ONLY
+    /// when the deterministic Pass 0 recognised no script body (issue #1013).
+    ///
+    /// **Fail-open, never fail-closed.** A provider denial (egress gate), a
+    /// timeout, a malformed answer, an exhausted budget or an adapter that
+    /// cannot render pages all end in the same place: one `warn`, today's
+    /// widened segmentation, and the `zone_detection` diagnostic the preview
+    /// renders. A screenplay must never fail to import because the structural
+    /// helper was unavailable.
+    ///
+    /// The pass is skipped entirely for the `legacy-pdftotext` adapter: it
+    /// refuses `render_page` by name, so attempting it would only produce a
+    /// noisy error per page.
+    async fn segment_with_optional_zones(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        pdf_bytes: &[u8],
+        document: &breakdown_core::ai::StructuredDocument,
+    ) -> SegmentedScript {
+        let mut zones = breakdown_core::ai::classify_document_zones(document, is_scene_heading);
+        let recognised = zones.has_script_body();
+        if recognised {
+            return extract_scenes_with_zones(document, &zones);
+        }
+        // The deterministic pass found no script page: this is the seam the VLM
+        // structural pass was designed for.
+        match self
+            .detect_zones_with_vlm(job, worker_id, pdf_bytes, document)
+            .await
+        {
+            Ok(answer) => match answer.validate(document) {
+                Ok(vlm_zones) => {
+                    let mut segmented = extract_scenes_with_zones(document, &vlm_zones);
+                    segmented
+                        .plan
+                        .set_source(breakdown_core::ai::PlanSource::Vlm);
+                    tracing::info!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        pages = vlm_zones.pages().len(),
+                        chunks = segmented.chunks.len(),
+                        "ai-import: VLM structural zoning re-zoned an unrecognised template (issue #1013)"
+                    );
+                    return segmented;
+                }
+                Err(error) => {
+                    // A rejected answer is a BOUNDED validation failure, not a
+                    // retry storm: log once and keep today's widening.
+                    tracing::warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        reason = %error,
+                        "ai-import: VLM zone answer rejected; falling back to the widened deterministic segmentation (issue #1013)"
+                    );
+                }
+            },
+            Err(error) => {
+                tracing::warn!(
+                    worker_id,
+                    job_id = %job.id.as_uuid(),
+                    %error,
+                    "ai-import: VLM structural zoning unavailable; falling back to the widened deterministic segmentation (issue #1013)"
+                );
+            }
+        }
+        zones.widen_to_script_body();
+        extract_scenes_with_zones(document, &zones)
+    }
+
+    /// One bounded VLM page-label loop (issue #1013).
+    ///
+    /// Renders, sends and drops ONE page at a time — the same ownership rule the
+    /// schedule path follows, so retained image memory is one page and the
+    /// document-wide byte ceiling still applies. Bounded twice: by page count
+    /// (`AI_IMPORT_MAX_ZONING_PAGES`) and by rendered bytes.
+    async fn detect_zones_with_vlm(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        pdf_bytes: &[u8],
+        document: &breakdown_core::ai::StructuredDocument,
+    ) -> Result<breakdown_core::ai::ZoneLabelAnswer, DomainError> {
+        let Some(vision) = self.vision.as_ref() else {
+            return Err(DomainError::validation(
+                "no vision slot configured for the structural-zoning pass",
+            ));
+        };
+        if self.extractor.parser_fingerprint() == super::LEGACY_PARSER_FINGERPRINT {
+            return Err(DomainError::validation(
+                "the legacy-pdftotext adapter cannot render pages, so the VLM zoning pass is unavailable",
+            ));
+        }
+        let page_count = document.page_count();
+        let max_pages = max_zoning_pages_from_env();
+        if page_count > max_pages {
+            return Err(DomainError::validation(format!(
+                "document has {page_count} pages, more than AI_IMPORT_MAX_ZONING_PAGES ({max_pages}); \
+                 the VLM zoning pass is skipped"
+            )));
+        }
+        let max_rendered_total = max_rendered_total_bytes_from_env();
+        let mut rendered_total = 0_usize;
+        let mut answer = breakdown_core::ai::ZoneLabelAnswer::default();
+        for page in &document.pages {
+            let rendered = self
+                .extractor
+                .render_page(
+                    pdf_bytes,
+                    page.page_number,
+                    RenderOptions::new(
+                        breakdown_core::ai::DEFAULT_TARGET_DPI,
+                        DEFAULT_MAX_RENDER_BYTES,
+                    ),
+                )
+                .await?;
+            rendered_total = rendered_total.saturating_add(rendered.png_bytes.len());
+            if rendered_total > max_rendered_total {
+                return Err(DomainError::validation(format!(
+                    "rendered zoning pages exceed the document-wide byte ceiling \
+                     ({rendered_total} > {max_rendered_total})"
+                )));
+            }
+            let hint = render_schedule_page_spatial_hint(page);
+            let request = breakdown_core::ai::LlmVisionRequest {
+                provider: vision.provider,
+                model: vision.model.clone(),
+                prompt: ZONING_PROMPT.to_owned(),
+                user_context: format!(
+                    "Document: {} pages. Label page {} of {}.",
+                    page_count, page.page_number, page_count
+                ),
+                page: breakdown_core::ai::LlmVisionPageInput {
+                    page_number: page.page_number,
+                    png_bytes: rendered.png_bytes,
+                    spatial_text_hint: hint,
+                },
+                max_tokens: self.bounds.max_tokens_per_req,
+                response_schema: None,
+                // The assistant model's effort choice does not describe this
+                // model (issue #1013 §5.1): defer to the provider default.
+                reasoning_effort: None,
+                zdr_attested: vision.zdr_attested,
+            };
+            let outcome = vision.client.chat_vision_zone_labels(&request).await?;
+            answer.pages.extend(outcome.output.pages);
+            // `rendered` is dropped here: the next page renders into a fresh
+            // allocation, so no PNG is retained (same rule as the page loop).
+        }
+        tracing::debug!(
+            worker_id,
+            job_id = %job.id.as_uuid(),
+            pages = answer.pages.len(),
+            "ai-import: VLM zone labels collected"
+        );
+        Ok(answer)
     }
 
     /// Process already extracted **flat text**. This seam keeps PDF subprocess
@@ -2529,6 +2697,30 @@ where
     // load, which routes through `fail_payload_load` so an absent payload is
     // distinguished from unreachable storage (issue #181). `process` surfaces
     // its own errors to the caller.
+}
+
+/// Prompt for the bounded VLM structural-zoning pass (issue #1013, ADR-041
+/// `D3`): labels and anchors ONLY — the model must never transcribe the page,
+/// because a re-typed sentence would invalidate every `source_quote`
+/// `verify_draft_outfits` checks.
+const ZONING_PROMPT: &str = "You label the STRUCTURE of one screenplay page. \
+Answer with JSON only: {\"pages\":[{\"page_number\":<n>,\"zone\":\"title_page|cast_list|scene_index|front_matter|script_body\",\"confidence\":\"high|medium|low\",\"anchors\":[\"P<NN>.B<NN>\"]}]}. \
+`zone` classifies the page: a cover/metadata page is title_page, a cast directory is cast_list, \
+a scene manifest (\"SCRIPT REPORT\"/\"DREHPLAN\") is scene_index, narrative front matter \
+(\"SYNOPSIS\", character bios) is front_matter, and the actual screenplay text is script_body. \
+`anchors` lists the blocks where a new scene starts, using the block ids of the supplied spatial hint. \
+NEVER transcribe, paraphrase or summarise the page text: zone names, confidence and anchors only.";
+
+/// How many pages the VLM zoning pass may render, from
+/// `AI_IMPORT_MAX_ZONING_PAGES` (issue #1013 open question O3: bounded by page
+/// COUNT as well as by rendered bytes). Absent or unparsable → the default; a
+/// `0` disables the pass, which is the honest way to say "never spend money on
+/// the structural helper".
+fn max_zoning_pages_from_env() -> usize {
+    std::env::var("AI_IMPORT_MAX_ZONING_PAGES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(12)
 }
 
 /// Deterministic merge operation. A zero-scene input is explicitly blocked so

@@ -87,6 +87,37 @@ curated vision models:
   provider's own catalogue may be curated. `nebius` `/v1/models` requires a paid key, so that check
   is a deployment task in the runbook.
 
+#### The VLM structural-zoning pass (ADR-041 `D3`, issue #1013)
+
+The deterministic Pass 0 is the default and stays the default: for born-digital
+broadcast PDFs it is cheaper, faster and byte-exact where a model would re-type
+prose. The VLM pass exists for the one case the deterministic pass cannot answer:
+
+- **Trigger.** Only when `classify_document_zones` returns a verdict with
+  `fell_back_to_script_body()` (no page was recognised as `ScriptBody`). Never
+  "always on".
+- **Input.** One rendered page at a time (`extractor.render_page`) plus its
+  spatial text hint; the PNG is moved into the request and dropped after the
+  page. Bounded twice: by `AI_IMPORT_MAX_ZONING_PAGES` (default `12`, `0`
+  disables the pass) and by `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`.
+- **Output.** `ZoneLabelAnswer` — zone names, a confidence and block anchors,
+  **never prose** (`D3`). The type has no field for text, so a model that
+  transcribes the page cannot leak it into a chunk; the slicer keeps slicing the
+  document's own bytes, which is what keeps `verify_draft_outfits` verbatim.
+  `ZoneLabelAnswer::validate` refuses an unknown zone, a missing/duplicate page
+  number and an anchor outside the document's `BlockAnchor` space.
+- **Fail-open, never fail-closed.** A provider denial (egress gate), a timeout, a
+  malformed or rejected answer, an exhausted budget or an adapter that cannot
+  render (`AI_DOCUMENT_PARSER=legacy-pdftotext` refuses `render_page` by name) all
+  end in one `warn!` plus today's widened segmentation. A screenplay must never
+  fail to import because the structural helper was unavailable.
+- **Diagnostic.** A widened verdict records ONE non-blocking
+  `Uncertainty { field: "zone_detection" }` in the preview, so the client can say
+  "Zonenerkennung unsicher — Fallback auf Gesamttext" instead of silently
+  shipping a worse scene list. A successful VLM plan marks
+  `StructuralPlan::source = vlm`; the source is diagnostic only and is NOT part
+  of `canonical_form`, so it never perturbs the `#871` chunk fingerprint.
+
 #### Nightly vision smoke (ADR-041 `D2`, issue #974)
 
 `ai_llm_smoke_test` carries the live page-image coverage: `vision_smoke_catalog_preflight` (zero
