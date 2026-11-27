@@ -6625,6 +6625,149 @@ async fn update_ai_config_rejects_a_half_supplied_vision_credential() {
     }
 }
 
+/// Issue #1013 (review finding round 3): an unchanged credential pair is only
+/// trusted while the request acts on EXACTLY the projected state. A request
+/// ahead of the projection (stale read model) can resubmit an OLDER pair whose
+/// key was revoked since it was written — prior validation proves ownership and
+/// provider binding at introduction time, never current active state.
+#[tokio::test]
+async fn update_ai_config_revalidates_a_pair_a_stale_projection_still_shows() {
+    // (label, request version, body, expected problem code — `None` = accepted)
+    let cases: [(&str, u64, serde_json::Value, Option<&str>); 3] = [
+        (
+            "vision, on the projected state (no lookup, prompt-only save)",
+            2,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_provider": "ovhcloud",
+                "vision_model": "qwen3-vl-30b-a3b",
+                "vision_vault_key_id": "projected-vision-key",
+                "version": 2
+            }),
+            None,
+        ),
+        (
+            "vision, ahead of the stale projection (revoked key re-checked)",
+            3,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "vision_provider": "ovhcloud",
+                "vision_model": "qwen3-vl-30b-a3b",
+                "vision_vault_key_id": "projected-vision-key",
+                "version": 3
+            }),
+            Some("ai-config.vault-key-forbidden"),
+        ),
+        (
+            "decision, ahead of the stale projection (revoked key re-checked)",
+            3,
+            serde_json::json!({
+                "provider": "neuralwatt",
+                "assistant_model": "assistant-v2",
+                "image_model": null,
+                "prompts": {},
+                "vault_key_id": "vault-key",
+                "decision_provider": "eurouter",
+                "decision_model": "clef-flash",
+                "decision_vault_key_id": "projected-decision-key",
+                "version": 3
+            }),
+            Some("ai-config.vault-key-forbidden"),
+        ),
+    ];
+
+    for (label, request_version, raw, expected_code) in cases {
+        let ports = FakePorts::default();
+        ports
+            .membership_repo
+            .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+            .await;
+        ports
+            .settings_repo
+            .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+            .await;
+        // The pair the projection still shows, REVOKED in the vault after it
+        // was written: re-storing it must not be accepted on the strength of
+        // "the projection says this is the current pair".
+        ports
+            .settings_repo
+            .by_vault_key
+            .lock()
+            .await
+            .remove("projected-vision-key");
+        ports
+            .settings_repo
+            .by_vault_key
+            .lock()
+            .await
+            .remove("projected-decision-key");
+        let commands = ports.ai_config_commands.clone();
+        let repo = ports.ai_config_repo.clone();
+        let state = state(ports);
+
+        // The read model is at version 2 and still shows the revoked pairs; the
+        // aggregate has moved on (the client holds its version from a PATCH
+        // response, so it can be ahead of the projection).
+        let mut view = config_view(TEST_SUB);
+        view.version = AggregateVersion(2);
+        view.vision_provider = Some(LlmProvider::Ovhcloud);
+        view.vision_model = Some("qwen3-vl-30b-a3b".to_owned());
+        view.vision_vault_key_id = Some("projected-vision-key".to_owned());
+        view.decision_provider = Some(LlmProvider::EURouter);
+        view.decision_model = Some("clef-flash".to_owned());
+        view.decision_vault_key_id = Some("projected-decision-key".to_owned());
+        let id = view.id;
+        repo.views.lock().await.insert(id, view);
+
+        let request: UpdateAiConfigRequest =
+            serde_json::from_value(raw).expect("the request deserializes");
+        assert_eq!(
+            request.version,
+            AggregateVersion(request_version),
+            "{label}: request version"
+        );
+
+        match expected_code {
+            Some(code) => {
+                let problem =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect_err(label)
+                        .into_problem();
+                assert_eq!(
+                    problem.status,
+                    StatusCode::FORBIDDEN.as_u16(),
+                    "{label}: status"
+                );
+                assert_eq!(problem.code, code, "{label}: code");
+                assert!(
+                    commands.updated.lock().await.is_empty(),
+                    "{label}: the command must not be dispatched"
+                );
+            }
+            None => {
+                let (status, _) =
+                    update_ai_config::<FakePorts>(State(state), user(), Path(id), Json(request))
+                        .await
+                        .expect(label);
+                assert_eq!(status, StatusCode::OK, "{label}: status");
+                assert!(
+                    !commands.updated.lock().await.is_empty(),
+                    "{label}: a genuinely unchanged prompt-only save must still dispatch"
+                );
+            }
+        }
+    }
+}
+
 /// The Decision slot carries the same rule (its shape predates #1013, the
 /// guard is shared): provider and key arrive together, or not at all.
 #[tokio::test]

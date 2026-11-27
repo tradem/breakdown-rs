@@ -8892,11 +8892,22 @@ pub async fn update_ai_config<P: Ports>(
             AiConfigError::DecisionProviderRequired,
         )));
     }
-    let binding_changed = effective_decision_provider != view.decision_provider
-        || effective_decision_key != view.decision_vault_key_id
-        || request.provider != view.provider
-        || request.vault_key_id != view.vault_key_id;
-    if binding_changed
+    // Re-validation is skipped ONLY when the request changes nothing about the
+    // pair AND it acts on exactly the projected state (`version` echoed from the
+    // same read model). Then the skip is provably safe: either the aggregate is
+    // at that version — so the stored pair IS the projected pair, nothing is
+    // (re)introduced — or the command fails the optimistic-lock guard below and
+    // writes nothing. A request AHEAD of the projection (a stale read model) may
+    // be resubmitting an OLDER pair whose key has since been revoked, and prior
+    // validation proves ownership and provider binding at INTRODUCTION time, not
+    // current active state — so that case is re-checked (issue #1013 review,
+    // round 3).
+    let decision_pair_unchanged = effective_decision_provider == view.decision_provider
+        && effective_decision_key == view.decision_vault_key_id
+        && request.provider == view.provider
+        && request.vault_key_id == view.vault_key_id;
+    let acting_on_projected_state = request.version == view.version;
+    if (!decision_pair_unchanged || !acting_on_projected_state)
         && let (Some(decision_provider), Some(decision_vault_key_id)) = (
             effective_decision_provider,
             effective_decision_key.as_deref(),
@@ -8941,11 +8952,15 @@ pub async fn update_ai_config<P: Ports>(
             AiConfigError::VisionProviderRequired,
         )));
     }
-    let vision_binding_changed = effective_vision_provider != view.vision_provider
-        || effective_vision_key != view.vision_vault_key_id
-        || request.provider != view.provider
-        || request.vault_key_id != view.vault_key_id;
-    if vision_binding_changed
+    // Same skip rule as the Decision slot above (issue #1013 review, round 3):
+    // an unchanged pair is only trusted while the request acts on exactly the
+    // projected state; otherwise the pair is re-validated, because a stale read
+    // model can hand back a key that has been revoked since it was stored.
+    let vision_pair_unchanged = effective_vision_provider == view.vision_provider
+        && effective_vision_key == view.vision_vault_key_id
+        && request.provider == view.provider
+        && request.vault_key_id == view.vault_key_id;
+    if (!vision_pair_unchanged || !acting_on_projected_state)
         && let (Some(vision_provider), Some(vision_vault_key_id)) =
             (effective_vision_provider, effective_vision_key.as_deref())
     {
