@@ -847,30 +847,30 @@ where
                     // A rejected answer may still have been billed (the adapter
                     // attaches the usage of a decoded-but-invalid response), so
                     // persist what it carries before the fail-open fallback.
-                    record_attempt_usage(
-                        self.queue.as_ref(),
-                        job.id,
-                        worker_id,
-                        vision.provider,
-                        &vision.model,
-                        error.billed_usage().map(<[LlmCallUsage]>::to_vec),
-                    )
-                    .await;
+                    if let Some(calls) = error.billed_usage() {
+                        append_zoning_usage(
+                            self.queue.as_ref(),
+                            job,
+                            worker_id,
+                            vision.provider,
+                            &vision.model,
+                            calls,
+                        )
+                        .await;
+                    }
                     return Err(error);
                 }
             };
             // The ledger append comes BEFORE the loop continues: a later page's
             // failure, or a rejected answer, must not discard the paid requests
-            // of the pages before it. `record_attempt_usage` is the same append
-            // the schedule-page path uses — best-effort (logs on failure), so a
-            // ledger write can never fail the import.
-            record_attempt_usage(
+            // of the pages before it.
+            append_zoning_usage(
                 self.queue.as_ref(),
-                job.id,
+                job,
                 worker_id,
                 vision.provider,
                 &vision.model,
-                Some(outcome.calls().to_vec()),
+                outcome.calls(),
             )
             .await;
             answer.pages.extend(outcome.output.pages);
@@ -1995,6 +1995,48 @@ fn source_text_len(chunk: &breakdown_core::ai::SceneChunk) -> usize {
         .len()
         .saturating_add(1)
         .saturating_add(chunk.text.len())
+}
+
+/// Append one zoning page's paid requests to the job row's billed-call ledger,
+/// attributed to the pair that billed them (issue #1013, CodeRabbit review PR
+/// #1018).
+///
+/// Deliberately NOT [`record_attempt_usage`]: that helper drops all-zero entries,
+/// which is right where it was introduced (a breaker hold's orphaned usage), but
+/// wrong here — a successful zone answer whose provider reported no usage
+/// metadata is still a **billed call**, and the schedule-page path keeps it too.
+/// Dropping it would turn a call priced at zero into an absent call, and the cost
+/// snapshot relies on that distinction (`calls == 0` means "spent nothing").
+///
+/// The zoning pass is fail-open, so a ledger write must never fail the import: a
+/// write that still fails after the bounded retry is the honest last resort
+/// (`warn`), exactly like [`record_attempt_usage`].
+async fn append_zoning_usage<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    job: &AiImportJob,
+    worker_id: &str,
+    provider: LlmProvider,
+    model: &str,
+    calls: &[LlmCallUsage],
+) {
+    if calls.is_empty() {
+        return;
+    }
+    if let Err(error) = append_billed_calls_with_retry(
+        queue,
+        job.id,
+        worker_id,
+        &attributed(provider, model, calls),
+    )
+    .await
+    {
+        tracing::warn!(
+            worker_id,
+            job_id = %job.id.as_uuid(),
+            %error,
+            "ai-import: a zoning page's billed usage could not be persisted (issue #1013)"
+        );
+    }
 }
 
 /// Refuse further billable work when the heartbeat observed a lost claim

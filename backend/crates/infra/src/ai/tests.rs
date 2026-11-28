@@ -10781,3 +10781,40 @@ async fn a_lost_claim_is_never_absorbed_by_the_fail_open_fallback() {
         "the deterministic fallback must not have run: {error}"
     );
 }
+
+/// CodeRabbit review, PR #1018 round 2: a successful zone answer that reports NO
+/// usage metadata is still a BILLED call. `record_attempt_usage` drops all-zero
+/// entries, so the zoning pass cannot use it — dropping the entry would turn a
+/// call priced at zero into an absent call (the cost snapshot separates
+/// "calls == 0" from "calls with zero counters"), while the schedule-page path
+/// keeps such entries.
+#[tokio::test]
+async fn a_zero_usage_zoning_answer_still_reaches_the_ledger() {
+    let zone_client = Arc::new(RecordingZoneClient::default());
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let queue = Arc::clone(&worker.queue);
+    let job = zone_script_job();
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "expected: the heading-less fixture yields no chunk");
+    }
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        1,
+        "one page → one paid zoning request"
+    );
+    assert_eq!(
+        queue.state.lock().unwrap().appended_calls,
+        vec![breakdown_core::ai::BilledCall {
+            provider: LlmProvider::Ovhcloud,
+            model: "qwen3-vl-30b-a3b".to_owned(),
+            usage: LlmCallUsage::default(),
+        }],
+        "a zero-usage answer is a recorded call, not an absent one"
+    );
+}
