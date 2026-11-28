@@ -307,6 +307,27 @@ impl LlmClient for OllamaChatClient {
                 "Ollama client received a non-Ollama vision request",
             ));
         }
+        // Issue #1013 (CodeRabbit review, PR #1018): a zone question is a paid
+        // page-image call like any other, so the breaker gate of the vision and
+        // text paths applies HERE too. It matters more than at the other two
+        // call sites: the zoning loop carries no `ProviderGate` of its own (the
+        // worker's primary gate describes the assistant pair), so a page the
+        // pair already fails on would otherwise be re-sent to it once per page.
+        if let Some(health) = &self.health
+            && !health
+                .state(LlmProvider::Ollama, &req.model)
+                .await
+                // `admits_paid_call`, NOT `admits_claim` — same rationale as
+                // `chat_constrained`: a `half_open` breaker admits the trial
+                // holder. An unavailable verdict admits (`unwrap_or(true)`),
+                // i.e. the pre-breaker behaviour.
+                .map(|snapshot| snapshot.admits_paid_call())
+                .unwrap_or(true)
+        {
+            return Err(super::provider_health::breaker_open_error_with_usage(
+                Vec::new(),
+            ));
+        }
         let (content, usage) = self.request_vision_once(req).await?;
         let answer = serde_json::from_str::<crate::ai::client::ZoneLabelAnswerSchema>(&content)
             .map_err(|error| {

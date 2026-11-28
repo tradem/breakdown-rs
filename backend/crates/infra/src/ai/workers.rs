@@ -648,6 +648,12 @@ where
                 "script worker received a non-script job",
             ));
         }
+        // Issue #1013 (CodeRabbit review, PR #1018): the fetch heartbeat is
+        // stopped before `process` is entered, and the chunk loop's own
+        // heartbeat only starts in `process_segmented_with_cast` — so the PDF
+        // extraction AND the paid VLM zoning pass would run unowned. Cover them
+        // here: a job reclaimed mid-zoning must not keep buying page calls.
+        let heartbeat = self.start_heartbeat(job.id, worker_id);
         // ADR-041 D1/D3 (issues #958/#959): the port returns the structured IR
         // and Pass 0 classifies its pages BEFORE a single chunk is cut. Only
         // `ScriptBody` prose becomes a chunk, so the cast list, the
@@ -659,8 +665,13 @@ where
             .extract(pdf_bytes, breakdown_core::ai::ExtractionOptions::default())
             .await?;
         let segmented = self
-            .segment_with_optional_zones(job, worker_id, pdf_bytes, &document)
-            .await;
+            .segment_with_optional_zones(job, worker_id, pdf_bytes, &document, heartbeat.as_ref())
+            .await?;
+        // The chunk loop renews the same claim from its own heartbeat; two
+        // heartbeats must not renew one claim concurrently.
+        if let Some(heartbeat) = heartbeat {
+            heartbeat.stop();
+        }
         self.process_segmented_with_cast(job, worker_id, &segmented, existing_season_cast)
             .await
     }
@@ -678,22 +689,28 @@ where
     /// The pass is skipped entirely for the `legacy-pdftotext` adapter: it
     /// refuses `render_page` by name, so attempting it would only produce a
     /// noisy error per page.
+    ///
+    /// Fail-open has exactly ONE exception: a lost claim. Another worker owns
+    /// the job then, so the `Conflict` of [`ensure_claim_holds`] propagates
+    /// instead of being absorbed by the widened fallback (CodeRabbit review, PR
+    /// #1018).
     async fn segment_with_optional_zones(
         &self,
         job: &AiImportJob,
         worker_id: &str,
         pdf_bytes: &[u8],
         document: &breakdown_core::ai::StructuredDocument,
-    ) -> SegmentedScript {
+        heartbeat: Option<&super::heartbeat::LeaseHeartbeat>,
+    ) -> Result<SegmentedScript, DomainError> {
         let mut zones = breakdown_core::ai::classify_document_zones(document, is_scene_heading);
         let recognised = zones.has_script_body();
         if recognised {
-            return extract_scenes_with_zones(document, &zones);
+            return Ok(extract_scenes_with_zones(document, &zones));
         }
         // The deterministic pass found no script page: this is the seam the VLM
         // structural pass was designed for.
         match self
-            .detect_zones_with_vlm(job, worker_id, pdf_bytes, document)
+            .detect_zones_with_vlm(job, worker_id, pdf_bytes, document, heartbeat)
             .await
         {
             Ok(answer) => match answer.validate(document) {
@@ -709,7 +726,7 @@ where
                         chunks = segmented.chunks.len(),
                         "ai-import: VLM structural zoning re-zoned an unrecognised template (issue #1013)"
                     );
-                    return segmented;
+                    return Ok(segmented);
                 }
                 Err(error) => {
                     // A rejected answer is a BOUNDED validation failure, not a
@@ -722,6 +739,10 @@ where
                     );
                 }
             },
+            // A lost claim is NOT a fail-open condition (CodeRabbit review, PR
+            // #1018): the new owner is already redoing the work, so falling
+            // back would let this worker keep going with no right to the result.
+            Err(error) if matches!(error, DomainError::Conflict { .. }) => return Err(error),
             Err(error) => {
                 tracing::warn!(
                     worker_id,
@@ -732,7 +753,7 @@ where
             }
         }
         zones.widen_to_script_body();
-        extract_scenes_with_zones(document, &zones)
+        Ok(extract_scenes_with_zones(document, &zones))
     }
 
     /// One bounded VLM page-label loop (issue #1013).
@@ -741,12 +762,19 @@ where
     /// schedule path follows, so retained image memory is one page and the
     /// document-wide byte ceiling still applies. Bounded twice: by page count
     /// (`AI_IMPORT_MAX_ZONING_PAGES`) and by rendered bytes.
+    ///
+    /// Two further rules come from the schedule page loop, both from the
+    /// CodeRabbit review of PR #1018: the claim is re-checked before every paid
+    /// request (a reclaimed job must not keep buying pages), and every paid
+    /// request goes on the job row's billed-call ledger **before** the loop
+    /// continues — attributed to the VISION pair, because that is who billed it.
     async fn detect_zones_with_vlm(
         &self,
         job: &AiImportJob,
         worker_id: &str,
         pdf_bytes: &[u8],
         document: &breakdown_core::ai::StructuredDocument,
+        heartbeat: Option<&super::heartbeat::LeaseHeartbeat>,
     ) -> Result<breakdown_core::ai::ZoneLabelAnswer, DomainError> {
         let Some(vision) = self.vision.as_ref() else {
             return Err(DomainError::validation(
@@ -788,6 +816,10 @@ where
                      ({rendered_total} > {max_rendered_total})"
                 )));
             }
+            // `render_page` awaited, so another worker may own the job by now —
+            // stop BEFORE the paid request instead of buying a page for a job
+            // this worker no longer holds (same rule as the schedule path).
+            ensure_claim_holds(heartbeat, job.id, worker_id)?;
             let hint = render_schedule_page_spatial_hint(page);
             let request = breakdown_core::ai::LlmVisionRequest {
                 provider: vision.provider,
@@ -809,7 +841,38 @@ where
                 reasoning_effort: None,
                 zdr_attested: vision.zdr_attested,
             };
-            let outcome = vision.client.chat_vision_zone_labels(&request).await?;
+            let outcome = match vision.client.chat_vision_zone_labels(&request).await {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    // A rejected answer may still have been billed (the adapter
+                    // attaches the usage of a decoded-but-invalid response), so
+                    // persist what it carries before the fail-open fallback.
+                    record_attempt_usage(
+                        self.queue.as_ref(),
+                        job.id,
+                        worker_id,
+                        vision.provider,
+                        &vision.model,
+                        error.billed_usage().map(<[LlmCallUsage]>::to_vec),
+                    )
+                    .await;
+                    return Err(error);
+                }
+            };
+            // The ledger append comes BEFORE the loop continues: a later page's
+            // failure, or a rejected answer, must not discard the paid requests
+            // of the pages before it. `record_attempt_usage` is the same append
+            // the schedule-page path uses — best-effort (logs on failure), so a
+            // ledger write can never fail the import.
+            record_attempt_usage(
+                self.queue.as_ref(),
+                job.id,
+                worker_id,
+                vision.provider,
+                &vision.model,
+                Some(outcome.calls().to_vec()),
+            )
+            .await;
             answer.pages.extend(outcome.output.pages);
             // `rendered` is dropped here: the next page renders into a fresh
             // allocation, so no PNG is retained (same rule as the page loop).

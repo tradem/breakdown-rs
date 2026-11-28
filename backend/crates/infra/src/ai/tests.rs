@@ -627,6 +627,10 @@ struct FakeQueueState {
     /// CodeRabbit review PR #967), flattened in append order — one entry per
     /// paid request.
     partial_usage: Vec<breakdown_core::ai::LlmCallUsage>,
+    /// The same appends WITH their `(provider, model)` attribution (issue #1013,
+    /// CodeRabbit review PR #1018): `partial_usage` cannot tell which pair
+    /// paid a request, so a zoning-page assertion needs the whole entry.
+    appended_calls: Vec<breakdown_core::ai::BilledCall>,
     /// Fault injection for the ledger append: fail this many times before the
     /// write lands (issue #970 round 14 — the bounded retry must survive a
     /// transient error instead of dropping a paid request).
@@ -686,6 +690,7 @@ impl AiImportQueue for FakeQueue {
         state
             .partial_usage
             .extend(calls.iter().map(|call| call.usage));
+        state.appended_calls.extend(calls.iter().cloned());
         Ok(())
     }
 
@@ -10503,6 +10508,12 @@ struct RecordingZoneClient {
     calls: Arc<Mutex<usize>>,
     /// When set, the answer is refused — the fail-open case.
     fail: bool,
+    /// When set, the answer is refused with a LOST CLAIM — the one refusal that
+    /// must NOT be fail-open (CodeRabbit review, PR #1018).
+    lost_claim: bool,
+    /// The usage each answer reports — non-zero so the billed-call ledger keeps
+    /// the entry (a zero-usage entry is dropped by `record_attempt_usage`).
+    usage: LlmCallUsage,
 }
 
 #[async_trait]
@@ -10519,6 +10530,11 @@ impl LlmClient for RecordingZoneClient {
         request: &breakdown_core::ai::LlmVisionRequest,
     ) -> Result<LlmCallOutcome<breakdown_core::ai::ZoneLabelAnswer>, DomainError> {
         *self.calls.lock().unwrap() += 1;
+        if self.lost_claim {
+            return Err(DomainError::conflict(
+                "worker lost its claim on the AI import job mid-processing",
+            ));
+        }
         if self.fail {
             return Err(DomainError::service_unavailable("zoning provider is down"));
         }
@@ -10531,7 +10547,7 @@ impl LlmClient for RecordingZoneClient {
                     anchors: Vec::new(),
                 }],
             },
-            LlmCallUsage::default(),
+            self.usage,
         ))
     }
 }
@@ -10623,8 +10639,8 @@ async fn no_vision_slot_means_no_zoning_question() {
 #[tokio::test]
 async fn an_unavailable_zoning_pass_still_imports_with_the_diagnostic() {
     let zone_client = Arc::new(RecordingZoneClient {
-        calls: Arc::new(Mutex::new(0)),
         fail: true,
+        ..RecordingZoneClient::default()
     });
     let worker = zone_worker(
         Arc::new(RecordingZoneClient::default()),
@@ -10687,5 +10703,81 @@ async fn the_legacy_parser_never_attempts_a_zoning_render() {
         *zone_client.calls.lock().unwrap(),
         0,
         "the legacy adapter cannot render, so no page may be sent"
+    );
+}
+
+/// CodeRabbit review, PR #1018 (Major, Data Integrity): every zoning page is a
+/// paid request, so its usage belongs on the job row's billed-call ledger —
+/// against the VISION pair, because that is who billed it. Without the append the
+/// cost snapshot and the per-model pricing never see the zoning spend, and the
+/// entries of the pages before a failure are lost with the accumulated answer.
+#[tokio::test]
+async fn each_zoning_page_reaches_the_ledger_with_the_vision_pair() {
+    let usage = LlmCallUsage {
+        tokens_in: 640,
+        tokens_out: 96,
+        cached_tokens_in: 0,
+        energy_millijoules: 4,
+    };
+    let zone_client = Arc::new(RecordingZoneClient {
+        usage,
+        ..RecordingZoneClient::default()
+    });
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let queue = Arc::clone(&worker.queue);
+    let job = zone_script_job();
+    // The fixture has no heading, so the import itself still fails — the run is
+    // only here to drive the zoning pass.
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "expected: the heading-less fixture yields no chunk");
+    }
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        1,
+        "one page → one paid zoning request"
+    );
+    assert_eq!(
+        queue.state.lock().unwrap().appended_calls,
+        vec![breakdown_core::ai::BilledCall {
+            provider: LlmProvider::Ovhcloud,
+            model: "qwen3-vl-30b-a3b".to_owned(),
+            usage,
+        }],
+        "the page's usage is on the ledger, attributed to the pair that billed it"
+    );
+}
+
+/// CodeRabbit review, PR #1018 (Minor, Stability): "fail-open" has exactly one
+/// exception. A lost claim means another worker owns the job, so the `Conflict`
+/// propagates instead of being absorbed by the widened segmentation — the same
+/// rule the schedule page loop follows.
+#[tokio::test]
+async fn a_lost_claim_is_never_absorbed_by_the_fail_open_fallback() {
+    let zone_client = Arc::new(RecordingZoneClient {
+        lost_claim: true,
+        ..RecordingZoneClient::default()
+    });
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let job = zone_script_job();
+    let error = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+        .expect_err("a lost claim abandons the job");
+    assert!(
+        matches!(error, DomainError::Conflict { .. }),
+        "the lost claim must surface as the conflict it is: {error:?}"
+    );
+    assert!(
+        !error.to_string().contains("scene heading"),
+        "the deterministic fallback must not have run: {error}"
     );
 }

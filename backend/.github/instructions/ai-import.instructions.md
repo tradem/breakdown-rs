@@ -95,7 +95,15 @@ prose. The VLM pass exists for the one case the deterministic pass cannot answer
 
 - **Trigger.** Only when `classify_document_zones` returns a verdict with
   `fell_back_to_script_body()` (no page was recognised as `ScriptBody`). Never
-  "always on".
+  "always on". **The fallback trigger cannot add scene chunks.** The pass only
+  decides *which pages count as body text*, while a chunk still opens only at a
+  line the scene-heading detector recognises as a heading — and
+  `fell_back_to_script_body()` means the document has no recognised heading at
+  all, so the plan cannot invent one. On such a template the pass can therefore
+  spend one page-image call per page (capped by `AI_IMPORT_MAX_ZONING_PAGES`)
+  without changing the chunk list. The trigger correction is a design change,
+  recorded in `openspec/changes/1013-ai-import-vision-slot/tasks.md` §5 — a
+  contract change, not a behaviour change here.
 - **Input.** One rendered page at a time (`extractor.render_page`) plus its
   spatial text hint; the PNG is moved into the request and dropped after the
   page. Bounded twice: by `AI_IMPORT_MAX_ZONING_PAGES` (default `12`, `0`
@@ -110,7 +118,12 @@ prose. The VLM pass exists for the one case the deterministic pass cannot answer
   malformed or rejected answer, an exhausted budget or an adapter that cannot
   render (`AI_DOCUMENT_PARSER=legacy-pdftotext` refuses `render_page` by name) all
   end in one `warn!` plus today's widened segmentation. A screenplay must never
-  fail to import because the structural helper was unavailable.
+  fail to import because the structural helper was unavailable. **One exception:
+  a lost claim.** The pass runs under a `LeaseHeartbeat` and re-checks ownership
+  before every paid page request, so a claim-lost `Conflict` abandons the job
+  instead of falling back — the new owner is already redoing the work. Every
+  page's usage goes on the job row's billed-call ledger, attributed to the
+  **vision** pair, before the loop continues.
 - **Diagnostic.** A widened verdict records ONE non-blocking
   `Uncertainty { field: "zone_detection" }` in the preview, so the client can say
   "Zonenerkennung unsicher — Fallback auf Gesamttext" instead of silently

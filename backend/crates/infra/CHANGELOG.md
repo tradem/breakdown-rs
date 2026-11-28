@@ -34,6 +34,22 @@ commits (ADR-020 D5).
   with the same pre-egress gate as the schedule page path, Ollama local with a
   fail-closed provider check). `request_vision_decoded` now takes the fallback
   schema as a parameter, because it serves two answer shapes.
+- The zoning pass runs under the job's `LeaseHeartbeat` and re-checks ownership
+  before every paid page request (`process_with_cast` now covers the extraction
+  and zoning phase, which used to sit between the source-load heartbeat's stop
+  and the chunk loop's own start). A lost claim is the ONE refusal that is not
+  fail-open: it abandons the job with `DomainError::Conflict` instead of
+  widening the segmentation.
+- Each zoning page's usage goes on the job row's billed-call ledger before the
+  loop continues, attributed to the VISION pair, and the usage an error carries
+  is recorded before the fallback runs — so the cost snapshot and the per-model
+  pricing see the zoning spend and a later page's failure cannot discard the
+  pages billed before it.
+- `chat_vision_zone_labels` on the Ollama client now applies the provider
+  breaker before its paid request, like `chat_constrained` and
+  `chat_vision_constrained`; a refusal returns the breaker sentinel with empty
+  usage. The zoning loop has no `ProviderGate` of its own, so without the guard a
+  page the pair already fails on was re-sent once per page.
 
 ## [0.94.0] - Unreleased
 ### Added (issue #1013)
