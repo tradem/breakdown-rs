@@ -52,15 +52,15 @@ test binaries (§8).
 
 ## 2. `[V2]` Worker wiring — the vision pair actually carries pages
 
-- [ ] 2.1 `AiWorkerConfig.vision: Option<AiWorkerVisionConfig>` resolved
+- [x] 2.1 `AiWorkerConfig.vision: Option<AiWorkerVisionConfig>` resolved
       all-or-nothing in `find_worker_config` (partial row → `None` + warn).
-- [ ] 2.2 Page-streaming schedule path builds a vision `Arc<dyn LlmClient>`
+- [x] 2.2 Page-streaming schedule path builds a vision `Arc<dyn LlmClient>`
       (own gate, own credential) and sends pages with the vision pair; the flat
       text path keeps the primary client. Client reuse only when provider,
       credential and transport inputs match.
-- [ ] 2.3 Provider health binding includes the vision model, so the operator
+- [x] 2.3 Provider health binding includes the vision model, so the operator
       sees which credential serves images.
-- [ ] 2.4 Tests: recording client asserts pages use the vision pair and chunks
+- [x] 2.4 Tests: recording client asserts pages use the vision pair and chunks
       the text pair (both directions); breaker isolation per pair; per-pair cost
       attribution; vision-client build failure → terminal code; rendered-byte
       ceiling unchanged.

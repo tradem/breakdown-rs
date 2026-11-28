@@ -36,7 +36,7 @@ use super::heartbeat::LeaseHeartbeat;
 use super::heartbeat::claim_lost;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind,
-    ExistingSeasonCharacter, LlmProvider,
+    DocumentStructureExtractor as _, ExistingSeasonCharacter, LlmProvider,
 };
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::error::DomainError;
@@ -54,11 +54,13 @@ use super::preview_store::AiPreviewStore;
 use super::queue::PgAiImportQueue;
 use super::runtime::AiWorkerRuntime;
 use super::workers::{
-    DecisionResolution, ProviderGate, ScheduleImportWorker, ScriptImportWorker, hold_job,
+    DecisionResolution, ProviderGate, ScheduleImportWorker, ScheduleVision, ScriptImportWorker,
+    hold_job,
 };
 use crate::ai::{DecisionPass, HttpDecisionClient};
 use crate::queries::CharacterRepositoryImpl;
 use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerDecisionConfig};
+use breakdown_core::ai::LlmClient;
 
 /// Bounded single-page read of the target season's existing cast (issue #961).
 /// A season this large is already beyond a realistic script; the bound keeps a
@@ -434,6 +436,65 @@ pub(super) async fn build_decision_client(
             }
         }
     }
+}
+
+/// Resolve the PAGE-IMAGE pair of one schedule job (issue #1013).
+///
+/// `Ok(None)` means the configuration has no vision slot: the assistant pair
+/// then serves the pages, which is the pre-#1013 behaviour and stays
+/// byte-identical.
+///
+/// **Client sharing is deliberate and narrow.** When the vision slot names the
+/// SAME provider and the SAME credential as the extraction pair (the legitimate
+/// same-key reuse), the primary transport is reused — building a second client
+/// for identical transport inputs would duplicate a connection pool for
+/// nothing. A different provider or a different credential gets its OWN client,
+/// because the credential is baked into the transport at build time; the two
+/// pairs still keep separate breakers and separate ledger attribution, which
+/// live in the worker's `ProviderGate` and the billed-call ledger, not in the
+/// transport.
+///
+/// A build failure is terminal for the job: without a page transport the
+/// extraction cannot run, and retrying a broken credential reference cannot fix
+/// it.
+async fn resolve_schedule_vision(
+    deps: &WorkerDeps,
+    config: &AiWorkerConfig,
+    primary: &Arc<dyn LlmClient>,
+) -> Result<Option<ScheduleVision>, DomainError> {
+    let Some(vision) = config.vision.as_ref() else {
+        return Ok(None);
+    };
+    if vision.provider == config.provider && vision.vault_key_id == config.vault_key_id {
+        return Ok(Some(ScheduleVision {
+            client: Arc::clone(primary),
+            provider: vision.provider,
+            model: vision.model.clone(),
+            zdr_attested: vision.zdr_attested,
+        }));
+    }
+    let timeout = Duration::from_secs(deps.bounds.request_timeout_secs);
+    let client: Arc<dyn LlmClient> = match vision.provider {
+        // Ollama needs no bearer token (plain-HTTP curated base URL), exactly
+        // like the primary Ollama path.
+        LlmProvider::Ollama => build_ollama_client(timeout, deps.health.as_ref())?,
+        _ => {
+            let api_key = fetch_credential(deps.credentials.as_ref(), &vision.vault_key_id).await?;
+            build_openai_client(vision.provider, api_key, timeout, deps.health.as_ref()).await?
+        }
+    };
+    info!(
+        provider = vision.provider.as_str(),
+        model = %vision.model,
+        same_key = vision.vault_key_id == config.vault_key_id,
+        "ai-import: page images are served by the configured vision pair (issue #1013)"
+    );
+    Ok(Some(ScheduleVision {
+        client,
+        provider: vision.provider,
+        model: vision.model.clone(),
+        zdr_attested: vision.zdr_attested,
+    }))
 }
 
 /// One script-worker poll: claim → load → resolve config → process under permit.
@@ -899,6 +960,45 @@ async fn schedule_worker_tick(
                     return Ok(());
                 }
             };
+            // Issue #1013: resolve the page-image pair before the worker is
+            // built — but ONLY for a job that actually streams page images.
+            // `resolve_schedule_vision` builds a client from a separate
+            // credential, and a build failure is terminal for the job; asking
+            // it about a native-CSV, plain-text or legacy-pdftotext job would
+            // fail an import that never sends a page on a credential it never
+            // uses (issue #1013 review). `None` is exactly the pre-#1013 shape
+            // for a job without pages: the assistant pair carries the single
+            // flat request.
+            let primary_transport: Arc<dyn LlmClient> = client.clone();
+            let vision = if super::workers::streams_page_images(
+                job.source_format,
+                deps.extractor.parser_fingerprint(),
+            ) {
+                match resolve_schedule_vision(deps, &config, &primary_transport).await {
+                    Ok(vision) => vision,
+                    Err(error) => {
+                        warn!(
+                            worker_id,
+                            job_id = %job.id.as_uuid(),
+                            %error,
+                            "failed to resolve the vision slot; failing job"
+                        );
+                        deps.queue
+                            .mark_failed(
+                                job.id,
+                                worker_id,
+                                &error.to_string(),
+                                Some(error.code().code),
+                                error.is_retryable(),
+                                error.retry_after(),
+                            )
+                            .await?;
+                        return Ok(());
+                    }
+                }
+            } else {
+                None
+            };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -921,6 +1021,7 @@ async fn schedule_worker_tick(
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
                 decision: decision_pass.clone(),
+                vision,
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -960,6 +1061,45 @@ async fn schedule_worker_tick(
                     return Ok(());
                 }
             };
+            // Issue #1013: resolve the page-image pair before the worker is
+            // built — but ONLY for a job that actually streams page images.
+            // `resolve_schedule_vision` builds a client from a separate
+            // credential, and a build failure is terminal for the job; asking
+            // it about a native-CSV, plain-text or legacy-pdftotext job would
+            // fail an import that never sends a page on a credential it never
+            // uses (issue #1013 review). `None` is exactly the pre-#1013 shape
+            // for a job without pages: the assistant pair carries the single
+            // flat request.
+            let primary_transport: Arc<dyn LlmClient> = client.clone();
+            let vision = if super::workers::streams_page_images(
+                job.source_format,
+                deps.extractor.parser_fingerprint(),
+            ) {
+                match resolve_schedule_vision(deps, &config, &primary_transport).await {
+                    Ok(vision) => vision,
+                    Err(error) => {
+                        warn!(
+                            worker_id,
+                            job_id = %job.id.as_uuid(),
+                            %error,
+                            "failed to resolve the vision slot; failing job"
+                        );
+                        deps.queue
+                            .mark_failed(
+                                job.id,
+                                worker_id,
+                                &error.to_string(),
+                                Some(error.code().code),
+                                error.is_retryable(),
+                                error.retry_after(),
+                            )
+                            .await?;
+                        return Ok(());
+                    }
+                }
+            } else {
+                None
+            };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -982,6 +1122,7 @@ async fn schedule_worker_tick(
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
                 decision: decision_pass.clone(),
+                vision,
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {

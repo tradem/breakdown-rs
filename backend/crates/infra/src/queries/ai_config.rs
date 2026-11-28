@@ -42,6 +42,27 @@ pub struct AiWorkerConfig {
     /// pre-egress gate resolves `vision_egress_policy_for_config` from the
     /// CONFIGURED state, not from a compile-time default.
     pub zdr_attested: bool,
+    /// Optional Vision slot (issue #1013): the provider/model/credential that
+    /// carries PAGE IMAGES. `None` means "use the assistant pair", i.e. the
+    /// pre-#1013 behaviour, and is also what a partially-set projection row
+    /// degrades to (the aggregate validates the triple as a whole).
+    pub vision: Option<AiWorkerVisionConfig>,
+}
+
+/// The resolved Vision slot for one claimed job (issue #1013): which
+/// provider/model receives page images and which vaulted credential authorizes
+/// it. All-or-nothing by construction, exactly like
+/// [`AiWorkerDecisionConfig`].
+#[derive(Debug, Clone)]
+pub struct AiWorkerVisionConfig {
+    pub provider: LlmProvider,
+    pub model: String,
+    /// The vision provider's credential. Equal to [`AiWorkerConfig::vault_key_id`]
+    /// only when the vision provider IS the extraction provider (same-key reuse).
+    pub vault_key_id: String,
+    /// The attestation of the VISION provider account — a different account
+    /// than the extraction one as soon as the providers differ (issue #968).
+    pub zdr_attested: bool,
 }
 
 /// The resolved Decision Model configuration for one claimed job (issue
@@ -83,6 +104,8 @@ impl AiConfigRepositoryImpl {
             SELECT id, provider, assistant_model, prompts, vault_key_id,
                    reasoning_effort,
                    decision_provider, decision_model, decision_vault_key_id,
+                   vision_provider, vision_model, vision_vault_key_id,
+                   vision_zdr_attested,
                    zdr_attested
             FROM ai_import.projection_ai_config
             WHERE user_id = $1 AND revoked = FALSE
@@ -149,6 +172,49 @@ impl AiConfigRepositoryImpl {
             _ => None,
         };
 
+        // Vision slot (issue #1013): all four columns are set or the slot is
+        // unused. A partially-set row (hand-edited projection) degrades to the
+        // assistant-pair fallback — never a half-configured page client, and
+        // never a reason to fail a job that would otherwise run.
+        let vision_provider: Option<String> =
+            row.try_get("vision_provider").map_err(map_sqlx_error)?;
+        let vision_model: Option<String> = row.try_get("vision_model").map_err(map_sqlx_error)?;
+        let vision_vault_key_id: Option<String> =
+            row.try_get("vision_vault_key_id").map_err(map_sqlx_error)?;
+        let vision = match (
+            vision_provider.as_deref(),
+            vision_model.as_deref(),
+            vision_vault_key_id.as_deref(),
+        ) {
+            (Some(raw_provider), Some(model), Some(vault_key_id))
+                if !model.trim().is_empty() && !vault_key_id.trim().is_empty() =>
+            {
+                match parse_provider(raw_provider.to_owned()) {
+                    Ok(provider) => Some(AiWorkerVisionConfig {
+                        provider,
+                        model: model.to_owned(),
+                        vault_key_id: vault_key_id.to_owned(),
+                        zdr_attested: row.try_get("vision_zdr_attested").map_err(map_sqlx_error)?,
+                    }),
+                    // A projection-integrity defect: degrade to the assistant
+                    // pair (the documented `None` contract) and say so.
+                    Err(_) => {
+                        tracing::warn!(
+                            "ai worker config: unknown vision provider '{raw_provider}'; using the assistant pair for page images"
+                        );
+                        None
+                    }
+                }
+            }
+            (None, None, None) => None,
+            _ => {
+                tracing::warn!(
+                    "ai worker config: partially set vision slot; using the assistant pair for page images"
+                );
+                None
+            }
+        };
+
         Ok(Some(AiWorkerConfig {
             config_id: row.try_get("id").map_err(map_sqlx_error)?,
             provider,
@@ -164,6 +230,7 @@ impl AiConfigRepositoryImpl {
             zdr_attested: row
                 .try_get::<bool, _>("zdr_attested")
                 .map_err(map_sqlx_error)?,
+            vision,
         }))
     }
 }

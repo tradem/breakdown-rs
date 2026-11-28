@@ -1095,6 +1095,53 @@ components:
           - number
           - 'null'
       type: object
+    AiProviderCredentialView:
+      description: |-
+        One CREDENTIAL the caller holds for `{provider}` and the models it pays for
+        (issue #1013 review).
+
+        A provider can be paid by more than one of the caller's credentials: the
+        assistant pair, a distinct `decision_vault_key_id`, and — since #1013 — a
+        distinct `vision_vault_key_id` whose ACCOUNT serves the page images. They are
+        different accounts even on the same provider, so one verdict cannot answer
+        for all of them; this type is the per-account half of that answer.
+
+        No `vault_key_id` crosses the wire (schema hygiene of this module): a
+        credential is identified by the models it pays for and by the `selected` bit.
+      properties:
+        budget:
+          oneOf:
+          - $ref: '#/components/schemas/AiProviderBudgetView'
+            description: The remaining budget as reported by THIS account.
+          - type: 'null'
+        credential_configured:
+          description: |-
+            Whether this credential could be resolved as an owned Vault binding. A
+            `false` here with a listed model means the reference is stale, foreign or
+            malformed — the state the account verdict cannot express.
+          type: boolean
+        models:
+          description: |-
+            The configured models of `{provider}` this credential pays for, sorted and
+            deduplicated.
+          items:
+            type: string
+          type: array
+        probe_status:
+          $ref: '#/components/schemas/AccountProbeStatus'
+          description: The account-usability verdict measured with THIS credential.
+        selected:
+          description: |-
+            Whether this is the credential `credential_configured`/`probe_status`/
+            `budget` above describe (exactly one entry carries it when the caller has
+            a credential for this provider).
+          type: boolean
+      required:
+      - selected
+      - credential_configured
+      - probe_status
+      - models
+      type: object
     AiProviderHealthView:
       description: 'The provider-health read (issue #942 W4).'
       properties:
@@ -1127,6 +1174,27 @@ components:
             questions — "is a key stored" vs "is the account usable" — and a client
             must never let the first hide a measured answer to the second.
           type: boolean
+        credentials:
+          description: |-
+            Every credential the caller holds for this provider, one entry per
+            distinct Vault binding (issue #1013 review).
+
+            The three fields above describe the `selected` entry only. They cannot
+            describe all of them: since #1013 one config can name a page-image
+            (vision) credential — even on the same provider and the same model id —
+            whose account pays for the images, and a healthy text account would hide
+            a broken vision one. Empty when the caller has no credential for this
+            provider (an answer, not an error).
+
+            `#[serde(default)]`: additive on the wire, the same rule as
+            `AiProviderInfo::decision_capable` — a server that predates the field
+            omits it, so the property is NOT `required` in the contract and a client
+            built from an older spec keeps deserializing. A client must read an absent
+            (or empty) list as "no per-credential detail" and fall back to the
+            top-level verdict, never as "no credential".
+          items:
+            $ref: '#/components/schemas/AiProviderCredentialView'
+          type: array
         probe_status:
           $ref: '#/components/schemas/AccountProbeStatus'
           description: The account-usability verdict of the zero-token read.

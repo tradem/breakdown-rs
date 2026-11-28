@@ -14,6 +14,8 @@ class _$AiProviderHealthView extends AiProviderHealthView {
   @override
   final bool credentialConfigured;
   @override
+  final BuiltList<AiProviderCredentialView>? credentials;
+  @override
   final AccountProbeStatus probeStatus;
   @override
   final LlmProvider provider;
@@ -26,6 +28,7 @@ class _$AiProviderHealthView extends AiProviderHealthView {
       {required this.breakers,
       this.budget,
       required this.credentialConfigured,
+      this.credentials,
       required this.probeStatus,
       required this.provider})
       : super._();
@@ -45,6 +48,7 @@ class _$AiProviderHealthView extends AiProviderHealthView {
         breakers == other.breakers &&
         budget == other.budget &&
         credentialConfigured == other.credentialConfigured &&
+        credentials == other.credentials &&
         probeStatus == other.probeStatus &&
         provider == other.provider;
   }
@@ -55,6 +59,7 @@ class _$AiProviderHealthView extends AiProviderHealthView {
     _$hash = $jc(_$hash, breakers.hashCode);
     _$hash = $jc(_$hash, budget.hashCode);
     _$hash = $jc(_$hash, credentialConfigured.hashCode);
+    _$hash = $jc(_$hash, credentials.hashCode);
     _$hash = $jc(_$hash, probeStatus.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jf(_$hash);
@@ -67,6 +72,7 @@ class _$AiProviderHealthView extends AiProviderHealthView {
           ..add('breakers', breakers)
           ..add('budget', budget)
           ..add('credentialConfigured', credentialConfigured)
+          ..add('credentials', credentials)
           ..add('probeStatus', probeStatus)
           ..add('provider', provider))
         .toString();
@@ -93,6 +99,12 @@ class AiProviderHealthViewBuilder
   set credentialConfigured(bool? credentialConfigured) =>
       _$this._credentialConfigured = credentialConfigured;
 
+  ListBuilder<AiProviderCredentialView>? _credentials;
+  ListBuilder<AiProviderCredentialView> get credentials =>
+      _$this._credentials ??= ListBuilder<AiProviderCredentialView>();
+  set credentials(ListBuilder<AiProviderCredentialView>? credentials) =>
+      _$this._credentials = credentials;
+
   AccountProbeStatus? _probeStatus;
   AccountProbeStatus? get probeStatus => _$this._probeStatus;
   set probeStatus(AccountProbeStatus? probeStatus) =>
@@ -112,6 +124,7 @@ class AiProviderHealthViewBuilder
       _breakers = $v.breakers.toBuilder();
       _budget = $v.budget?.toBuilder();
       _credentialConfigured = $v.credentialConfigured;
+      _credentials = $v.credentials?.toBuilder();
       _probeStatus = $v.probeStatus;
       _provider = $v.provider;
       _$v = null;
@@ -143,6 +156,7 @@ class AiProviderHealthViewBuilder
                 credentialConfigured,
                 r'AiProviderHealthView',
                 'credentialConfigured'),
+            credentials: _credentials?.build(),
             probeStatus: BuiltValueNullFieldError.checkNotNull(
                 probeStatus, r'AiProviderHealthView', 'probeStatus'),
             provider: BuiltValueNullFieldError.checkNotNull(
@@ -155,6 +169,9 @@ class AiProviderHealthViewBuilder
         breakers.build();
         _$failedField = 'budget';
         _budget?.build();
+
+        _$failedField = 'credentials';
+        _credentials?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'AiProviderHealthView', _$failedField, e.toString());

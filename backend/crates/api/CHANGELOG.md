@@ -18,6 +18,14 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.75.0] - Unreleased
+### Changed (issue #1013)
+
+- `GET /v1/ai-import/providers/{provider}/health` lists the configured VISION
+  model as a bound `(provider, model)` pair, with the vision credential as its
+  binding. Without it the operator saw a healthy text row while the model that
+  actually bills the page images stayed invisible (and its outage unreported).
+
 ## [0.74.0] - Unreleased
 ### Added (issue #1013)
 

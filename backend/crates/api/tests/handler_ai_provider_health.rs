@@ -53,9 +53,14 @@ use common::*;
 const USER_A: &str = "ai-provider-health-user-a";
 const USER_B: &str = "ai-provider-health-user-b";
 const MODEL: &str = "mistral-large-3";
+/// A page-image model curated for EURouter (issue #1013).
+const VISION_MODEL: &str = "qwen3-vl-30b-a3b";
 /// Two distinct binding references, so the isolation cases can prove WHICH one
 /// was read (the second belongs to the other user).
 const VAULT_KEY_A: &str = "settings-01890f47-3c4d-7b21-9c0e-2a5f8b6d1e33";
+/// A second binding of the SAME caller, used for a distinct page-image
+/// credential (the split-billing shape #1013 exists for).
+const VAULT_KEY_B: &str = "settings-0190c2f4-5b6a-7d38-8e2f-4c7a1b9d0e51";
 
 fn user(sub: &str) -> CurrentUser {
     CurrentUser::dummy(sub)
@@ -684,4 +689,167 @@ async fn a_local_provider_is_measured_without_any_stored_key() {
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].provider, LlmProvider::Ollama);
     assert_eq!(recorded[0].key, None);
+}
+
+/// Issue #1013 (review): the vision slot can name the SAME provider AND the same
+/// model id as the assistant pair while a DIFFERENT credential pays for the
+/// pages. A model-only dedupe dropped that credential, so the read reported the
+/// text account's verdict for the page-image account and a broken vision
+/// credential stayed invisible.
+///
+/// The exact shape the finding describes: `(EURouter, mistral-large-3)` on
+/// `VAULT_KEY_A` plus `(EURouter, mistral-large-3)` on `VAULT_KEY_B`, where the
+/// second account answers `not_usable`.
+#[tokio::test]
+async fn a_same_model_vision_credential_is_its_own_credential_row() {
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    seed_own_credential(&ports, USER_A, VAULT_KEY_A, "sk-caller-a").await;
+    // The vision slot reuses the CAMERA-ready model id of the assistant pair but
+    // its own binding — and that binding is the caller's own, so nothing here is
+    // rejected for ownership.
+    ports
+        .settings_repo
+        .bind_vault_key(VAULT_KEY_B, "eurouter", USER_A)
+        .await;
+    {
+        let mut views = ports.ai_config_repo.views.lock().await;
+        let config = views
+            .values_mut()
+            .next()
+            .expect("the seeded config must exist");
+        config.vision_provider = Some(LlmProvider::EURouter);
+        config.vision_model = Some(MODEL.to_owned());
+        config.vision_vault_key_id = Some(VAULT_KEY_B.to_owned());
+    }
+    // The text account is fine, the page-image account is not.
+    ports
+        .ai_provider_account_probe
+        .answer_key(
+            VAULT_KEY_A,
+            AccountProbeSnapshot {
+                status: AccountProbeStatus::Usable,
+                budget: Some(AccountBudget {
+                    remaining: Some(12.5),
+                }),
+            },
+        )
+        .await;
+    ports
+        .ai_provider_account_probe
+        .answer_key(
+            VAULT_KEY_B,
+            AccountProbeSnapshot {
+                status: AccountProbeStatus::NotUsable,
+                budget: Some(AccountBudget {
+                    remaining: Some(0.0),
+                }),
+            },
+        )
+        .await;
+    let probe = ports.ai_provider_account_probe.clone();
+    let state = state(ports).await;
+
+    let response = call(&state, USER_A, "eurouter", None)
+        .await
+        .expect("a credential-role member may read their provider health");
+    let (status, body) = body_json(response).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // BOTH credentials were measured, not just the first one that names the model.
+    let recorded = probe.recorded().await;
+    let probed_keys: Vec<&str> = recorded
+        .iter()
+        .map(|request| request.vault_key_id.as_str())
+        .collect();
+    assert!(
+        probed_keys.contains(&VAULT_KEY_A) && probed_keys.contains(&VAULT_KEY_B),
+        "both credentials must be probed: {probed_keys:?}"
+    );
+
+    // The selected row is the assistant account (the pre-#1013 answer), and the
+    // page-image account is a row of its own — with the same model id, so only the
+    // probe separates them.
+    assert_eq!(body["probe_status"], "usable");
+    let credentials = body["credentials"]
+        .as_array()
+        .expect("credentials is an array");
+    assert_eq!(
+        credentials.len(),
+        2,
+        "a same-model, different-key vision pair must not be deduplicated away: {credentials:?}"
+    );
+    let selected: Vec<&serde_json::Value> = credentials
+        .iter()
+        .filter(|row| row["selected"] == serde_json::json!(true))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(selected.len(), 1, "exactly one credential is selected");
+    assert_eq!(selected[0]["probe_status"], "usable");
+    let vision = credentials
+        .iter()
+        .find(|row| row["selected"] == serde_json::json!(false))
+        .expect("the vision credential is listed with its own verdict");
+    assert_eq!(
+        vision["probe_status"], "not_usable",
+        "a fault in the page-image credential must be visible: {vision:?}"
+    );
+    assert_eq!(vision["credential_configured"], true);
+    assert_eq!(vision["budget"]["remaining"], 0.0);
+    assert_eq!(
+        vision["models"],
+        serde_json::json!([MODEL]),
+        "the row names the model it pays for"
+    );
+    // No binding reference crosses the wire (schema hygiene of this module).
+    assert!(
+        !body.to_string().contains(VAULT_KEY_A) && !body.to_string().contains(VAULT_KEY_B),
+        "the response must not publish a vault key reference"
+    );
+}
+
+/// Issue #1013: the vision slot can name the SAME provider with a different
+/// model (and its own credential). The health read must list it as a configured
+/// pair, otherwise the operator sees a healthy text row while the page-image
+/// model — the one that actually bills the images — is invisible.
+#[tokio::test]
+async fn the_configured_vision_model_appears_as_a_bound_pair() {
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    seed_own_credential(&ports, USER_A, VAULT_KEY_A, "sk-caller-a").await;
+    // Give the caller's config a vision slot on the SAME provider but with its
+    // own credential, which is the "split billing, one provider" shape.
+    {
+        let mut views = ports.ai_config_repo.views.lock().await;
+        let config = views
+            .values_mut()
+            .next()
+            .expect("the seeded config must exist");
+        config.vision_provider = Some(LlmProvider::EURouter);
+        config.vision_model = Some(VISION_MODEL.to_owned());
+        config.vision_vault_key_id = Some(VAULT_KEY_A.to_owned());
+    }
+    let state = state(ports.clone()).await;
+
+    let response = call(&state, USER_A, "eurouter", None)
+        .await
+        .expect("a credential-role member may read their provider health");
+    let (status, body) = body_json(response).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let models: Vec<&str> = body["breakers"]
+        .as_array()
+        .expect("breakers is an array")
+        .iter()
+        .filter_map(|row| row["model"].as_str())
+        .collect();
+    assert!(
+        models.contains(&MODEL),
+        "the assistant model must stay listed: {models:?}"
+    );
+    assert!(
+        models.contains(&VISION_MODEL),
+        "the vision model must be listed as a configured pair (issue #1013): {models:?}"
+    );
 }

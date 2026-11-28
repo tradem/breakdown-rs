@@ -285,6 +285,7 @@ fn schedule_worker(
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     }
 }
 

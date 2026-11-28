@@ -35,6 +35,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiPreviewPayloadOneOfKindEnum.serializer)
       ..add(AiProviderBreakerView.serializer)
       ..add(AiProviderBudgetView.serializer)
+      ..add(AiProviderCredentialView.serializer)
       ..add(AiProviderHealthView.serializer)
       ..add(AiProviderInfo.serializer)
       ..add(AppearanceOutfitView.serializer)
@@ -232,6 +233,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<AiProviderBreakerView>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(AiProviderCredentialView)]),
+          () => ListBuilder<AiProviderCredentialView>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(AppearanceOutfitView)]),
           () => ListBuilder<AppearanceOutfitView>())
       ..addBuilderFactory(
@@ -363,6 +368,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SollIstDiffRow)]),
           () => ListBuilder<SollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

@@ -1170,6 +1170,7 @@ fn schedule_worker(
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     }
 }
@@ -6509,6 +6510,7 @@ fn worker_decision_config(
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         decision,
         zdr_attested: false,
+        vision: None,
     }
 }
 
@@ -6826,6 +6828,7 @@ async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     worker.decision = Some(super::DecisionResolution::Available(Arc::new(
@@ -9144,6 +9147,7 @@ async fn schedule_worker_streams_a_spatial_pdf_page_by_page_through_vision() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
@@ -9201,6 +9205,7 @@ async fn a_breaker_hold_persists_the_billed_pages_usage() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
@@ -9361,6 +9366,7 @@ async fn schedule_worker_keeps_the_flat_text_path_for_the_legacy_parser() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
@@ -9433,6 +9439,7 @@ async fn a_failed_usage_read_fails_the_job_before_any_paid_call() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
@@ -9482,6 +9489,7 @@ async fn a_successful_retry_after_a_billed_failure_counts_usage_once() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
@@ -9613,6 +9621,7 @@ async fn a_terminal_failure_persists_its_carried_usage() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
         zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
@@ -10072,4 +10081,357 @@ impl LlmClient for TerminalBilledValidationClient {
             ]),
         )
     }
+}
+
+// ===========================================================================
+// Issue #1013 — the page-image pair carries the pages, the assistant pair the
+// flat text
+// ===========================================================================
+
+/// Vision client that records the `(provider, model, zdr_attested)` of every
+/// multimodal page call, so a test can prove WHICH pair the worker put on the
+/// wire. It refuses the flat path on purpose: a page call that leaks into the
+/// assistant client (or a flat call that leaks into this one) must fail loudly.
+#[derive(Clone, Default)]
+struct RecordingPagePairClient {
+    calls: Arc<Mutex<Vec<(LlmProvider, String, bool)>>>,
+}
+
+#[async_trait]
+impl LlmClient for RecordingPagePairClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "RecordingPagePairClient only extracts schedule pages",
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "the flat-text path must never reach the page-image client (issue #1013)",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        self.calls.lock().unwrap().push((
+            request.provider,
+            request.model.clone(),
+            request.zdr_attested,
+        ));
+        Ok(LlmCallOutcome::new(
+            breakdown_core::ai::SchedulePageExtraction {
+                legend_entries: Vec::new(),
+                rows: vec![breakdown_core::ai::SchedulePageRow {
+                    row_ref: format!("page-{}", request.page.page_number),
+                    scene_ref: Some(format!("294.{}", request.page.page_number)),
+                    shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".to_owned()),
+                    date: None,
+                    location: Some("KLINIKUM".to_owned()),
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                }],
+                end_of_page_shooting_day_label: None,
+                end_of_page_date: None,
+            },
+            // One million input tokens per page call, so a cost assertion has a
+            // countable figure (issue #1013, criterion 5).
+            LlmCallUsage {
+                tokens_in: 1_000_000,
+                ..LlmCallUsage::default()
+            },
+        ))
+    }
+}
+
+/// Acceptance criterion 2 of issue #1013, direction A: with a vision slot
+/// configured, every PAGE goes to the vision pair and the assistant (text)
+/// client is never asked to carry an image — the exact defect the slot fixes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn schedule_pages_go_to_the_vision_pair_and_never_to_the_assistant_client() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The assistant pair is a TEXT-only client: it would reject an image call.
+    let assistant = Arc::new(RecordingVisionScheduleClient::default());
+    let page_pair = Arc::new(RecordingPagePairClient::default());
+    let worker = ScheduleImportWorker {
+        queue,
+        client: assistant.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+        // Issue #1013: the page-image pair, on a different provider with its own
+        // (attested) account.
+        vision: Some(super::ScheduleVision {
+            client: page_pair.clone(),
+            provider: LlmProvider::Ovhcloud,
+            model: "qwen3-vl-30b-a3b".to_owned(),
+            zdr_attested: true,
+        }),
+        zdr_attested: false,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let handle = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("a spatial PDF schedule must stream through the vision seam");
+    assert!(!handle.is_empty());
+
+    let calls = page_pair.calls.lock().unwrap().clone();
+    assert!(
+        !calls.is_empty(),
+        "the configured vision pair must serve the pages"
+    );
+    for (provider, model, zdr_attested) in calls {
+        assert_eq!(provider, LlmProvider::Ovhcloud);
+        assert_eq!(model, "qwen3-vl-30b-a3b");
+        assert!(
+            zdr_attested,
+            "the VISION account's attestation must travel, not the assistant's"
+        );
+    }
+    // Direction B of the same criterion: the assistant client saw no page.
+    assert!(
+        assistant.page_numbers.lock().unwrap().is_empty(),
+        "a page image must never reach the assistant (text) client"
+    );
+}
+
+/// Acceptance criterion 2 of issue #1013, direction B: the FLAT-text path keeps
+/// the assistant pair even when a vision slot is configured — the vision client
+/// must stay completely unused (its `extract_schedule` errors on purpose).
+#[tokio::test]
+async fn flat_text_schedule_keeps_the_assistant_pair_with_a_vision_slot_configured() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let assistant = Arc::new(RecordingScheduleClient::default());
+    let page_pair = Arc::new(RecordingPagePairClient::default());
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: assistant.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+        vision: Some(super::ScheduleVision {
+            client: page_pair.clone(),
+            provider: LlmProvider::Ovhcloud,
+            model: "qwen3-vl-30b-a3b".to_owned(),
+            zdr_attested: false,
+        }),
+        zdr_attested: false,
+    };
+    let job = schedule_job(SourceFormat::PlainText);
+
+    worker
+        .process(&job, "test-worker", b"1 T1 KLINIKUM\n".as_slice())
+        .await
+        .expect("the flat-text path must run on the assistant pair");
+
+    let flat_requests = assistant.requests.lock().unwrap().clone();
+    assert!(
+        !flat_requests.is_empty(),
+        "the flat path must call the assistant client"
+    );
+    for request in flat_requests {
+        assert_eq!(request.provider, LlmProvider::Neuralwatt);
+        assert_eq!(request.model, "deepseek-v4-flash");
+    }
+    assert!(
+        page_pair.calls.lock().unwrap().is_empty(),
+        "the page-image pair must not be touched by flat text"
+    );
+    assert!(
+        queue.state.lock().unwrap().succeeded.contains(&job.id),
+        "the job must still succeed"
+    );
+}
+
+/// Issue #1013 (review): one shared predicate decides whether a schedule job
+/// sends PAGE IMAGES, and both consumers must agree on it — the worker's
+/// extraction path (which transport carries the pages) and the worker loop
+/// (whether a page transport has to be resolved at all before the worker is
+/// built). A job that does not stream must never make the loop resolve — and
+/// fail on — a vision credential it will not use.
+#[test]
+fn page_image_streaming_has_exactly_one_definition() {
+    use crate::ai::LEGACY_PARSER_FINGERPRINT;
+    use crate::ai::SpatialPdfExtractor;
+    use breakdown_core::ai::DocumentStructureExtractor as _;
+
+    let spatial = SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30));
+    let legacy =
+        super::LegacyPdfToTextAdapter::new(1024 * 1024, std::time::Duration::from_secs(30));
+
+    assert!(
+        super::workers::streams_page_images(SourceFormat::Pdf, spatial.parser_fingerprint()),
+        "a spatial PDF is the ONLY shape that streams page images"
+    );
+    assert!(
+        !super::workers::streams_page_images(SourceFormat::Pdf, legacy.parser_fingerprint()),
+        "the legacy pdftotext rollback target keeps the single flat-text request"
+    );
+    assert_eq!(
+        legacy.parser_fingerprint(),
+        LEGACY_PARSER_FINGERPRINT,
+        "the fixture above must name the legacy parser, not just any second fingerprint"
+    );
+    for format in [SourceFormat::PlainText, SourceFormat::Csv] {
+        assert!(
+            !super::workers::streams_page_images(format, spatial.parser_fingerprint()),
+            "{format:?} never sends a page image"
+        );
+    }
+}
+
+/// Acceptance criterion 5 of issue #1013: the page calls are priced from the
+/// VISION pair's own rate card, and an unpriced vision pair degrades the
+/// snapshot to `unknown` instead of borrowing the assistant pair's price.
+///
+/// Both halves matter: pricing the pages with the text row would silently
+/// under- (or over-) report a Drehplan import, and a fabricated zero would be
+/// worse than an honest "unknown".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn schedule_prices_page_calls_with_the_vision_pairs_own_rate_card() {
+    use super::SpatialPdfExtractor;
+
+    fn page_worker(
+        pricing: Arc<dyn breakdown_core::ai::AiModelPricingRepository>,
+        page_pair: Arc<RecordingPagePairClient>,
+    ) -> ScheduleImportWorker<FakeQueue, RecordingVisionScheduleClient, SpatialPdfExtractor> {
+        ScheduleImportWorker {
+            queue: Arc::new(FakeQueue::default()),
+            client: Arc::new(RecordingVisionScheduleClient::default()),
+            previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
+            extractor: SpatialPdfExtractor::new(
+                4 * 1024 * 1024,
+                std::time::Duration::from_secs(30),
+            ),
+            provider: LlmProvider::Neuralwatt,
+            model: "deepseek-v4-flash".to_owned(),
+            prompt: "fixture prompt".to_owned(),
+            flat_prompt: "fixture prompt".to_owned(),
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+            bounds: AiImportBounds::default(),
+            pricing: Some(pricing),
+            decision: None,
+            vision: Some(super::ScheduleVision {
+                client: page_pair,
+                provider: LlmProvider::Ovhcloud,
+                model: "qwen3-vl-30b-a3b".to_owned(),
+                zdr_attested: false,
+            }),
+            zdr_attested: false,
+        }
+    }
+
+    // Both rows exist and DELIBERATELY differ: the assistant row bills 1 USD per
+    // million input tokens, the vision row 2 USD. A page call therefore costs
+    // 2_000_000_000 nano — pricing it with the assistant's row would halve it.
+    let both = MapPricingRepo::default()
+        .with_row(
+            LlmProvider::Neuralwatt,
+            "deepseek-v4-flash",
+            pricing_at(
+                1_000_000_000,
+                0,
+                0,
+                breakdown_core::ai::PricingSource::CuratedSeed,
+            ),
+        )
+        .with_row(
+            LlmProvider::Ovhcloud,
+            "qwen3-vl-30b-a3b",
+            pricing_at(
+                2_000_000_000,
+                0,
+                0,
+                breakdown_core::ai::PricingSource::CuratedSeed,
+            ),
+        );
+    let page_pair = Arc::new(RecordingPagePairClient::default());
+    let worker = page_worker(Arc::new(both), page_pair.clone());
+    let job = schedule_job(SourceFormat::Pdf);
+    worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("the page path must run");
+    let page_calls = page_pair.calls.lock().unwrap().len() as i64;
+    assert!(page_calls > 0, "the fixture must bill at least one page");
+    let cost = worker
+        .queue
+        .state
+        .lock()
+        .unwrap()
+        .telemetry
+        .last()
+        .and_then(|telemetry| telemetry.cost.clone())
+        .expect("the schedule path records a cost snapshot");
+    assert_eq!(cost.status, breakdown_core::ai::CostStatus::Known);
+    assert_eq!(
+        cost.total.total_nano,
+        Some(page_calls * 2_000_000_000),
+        "every page is priced from the VISION row (2 USD/M), not the assistant's (1 USD/M)"
+    );
+
+    // Only the ASSISTANT row exists: the vision group has no rate card, so the
+    // extraction component is honestly `unknown` — never the assistant's price.
+    let assistant_only = MapPricingRepo::default().with_row(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
+        pricing_at(
+            1_000_000_000,
+            0,
+            0,
+            breakdown_core::ai::PricingSource::CuratedSeed,
+        ),
+    );
+    let page_pair = Arc::new(RecordingPagePairClient::default());
+    let worker = page_worker(Arc::new(assistant_only), page_pair);
+    let job = schedule_job(SourceFormat::Pdf);
+    worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("the page path must still run");
+    let cost = worker
+        .queue
+        .state
+        .lock()
+        .unwrap()
+        .telemetry
+        .last()
+        .and_then(|telemetry| telemetry.cost.clone())
+        .expect("the schedule path records a cost snapshot");
+    assert_eq!(
+        cost.status,
+        breakdown_core::ai::CostStatus::Unknown,
+        "an unpriced vision pair must not be priced with the assistant's row"
+    );
+    assert_eq!(cost.total.total_nano, None);
 }
