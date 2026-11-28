@@ -182,6 +182,10 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
                 )
                 .map(<[breakdown_core::ai::ReasoningEffort]>::to_vec)
                 .unwrap_or_default(),
+                // Issue #1013: the vision capability is curated, never inferred
+                // from a live listing — a provider's `/models` response does not
+                // say which entries accept images.
+                supports_vision: breakdown_core::ai::is_curated_vision_model(provider, &model.id),
                 id: model.id,
                 display_name: None,
                 provider,

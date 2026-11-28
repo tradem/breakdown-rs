@@ -90,7 +90,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        114,
+        115,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -409,6 +409,13 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // gate is handler-internal (`// AUTHZ-GATE:`, like decision-models).
         (
             "/ai-import/providers/{provider}/image-models",
+            Requirement::Authenticated,
+        ),
+        // Curated vision (page-image) model catalog (issue #1013) — same AuthN
+        // level as the sibling catalog reads; the credential-role gate is
+        // handler-internal (`// AUTHZ-GATE:`, like decision-models).
+        (
+            "/ai-import/providers/{provider}/vision-models",
             Requirement::Authenticated,
         ),
         // Provider health + budget read (issue #942 W4) — same AuthN level as

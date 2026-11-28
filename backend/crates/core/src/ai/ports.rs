@@ -354,6 +354,17 @@ pub struct ModelInfo {
     /// i.e. "no choosable level", never a guessed one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supported_reasoning_efforts: Vec<ReasoningEffort>,
+    /// Whether this model is known to accept **page images** (issue #1013), so
+    /// a client can filter its vision picker instead of offering a model that
+    /// will answer `400` on the first page.
+    ///
+    /// `true` only for a model in a provider's verified vision catalogue
+    /// (`core::ai::vision::curated_vision_model_ids`). Additive with
+    /// `serde(default)`: a backend that predates the field, a live provider
+    /// catalogue this workspace cannot verify, and every text/decision/image
+    /// model report `false` — an unverified capability is never asserted.
+    #[serde(default)]
+    pub supports_vision: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

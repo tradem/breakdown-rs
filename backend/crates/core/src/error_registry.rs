@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 120;
+const PROBLEM_CODE_COUNT: usize = 121;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1001,6 +1001,16 @@ problem_codes! {
         code: "ai-config.vision-vault-key-mismatch",
         status: 422,
         title: "Vision vault key cannot be reused across providers",
+        extensions: &[],
+    },
+
+    /// 422 — the vision model (issue #1013) is not in the provider's curated
+    /// vision catalogue. A provider whose catalogue this workspace cannot
+    /// verify publishes none, and then any non-empty ID is accepted.
+    AI_CONFIG_VISION_MODEL_UNKNOWN {
+        code: "ai-config.vision-model-unknown",
+        status: 422,
+        title: "Vision model not curated for provider",
         extensions: &[],
     },
 

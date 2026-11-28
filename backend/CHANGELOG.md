@@ -47,6 +47,19 @@ generated notes are never used.
   instead of on the first page. The worker wiring follows in part 2/4.
   Crate versions: `core` 0.81.0, `infra` 0.92.0, `api` 0.74.0.
 
+### Added
+
+- **AI import: a vision catalogue and a declared capability (issue #1013, part
+  3/4).** `GET /v1/ai-import/providers/{provider}/vision-models` serves the
+  models this workspace has verified as image-capable (Scaleway, OVHcloud,
+  Nebius), and every `ModelInfo` now carries `supports_vision` so a picker can
+  filter instead of offering a text model that fails on the first paid page.
+  A configuration naming an uncurated model for a provider WITH a verified
+  catalogue is refused at save time (`422 ai-config.vision-model-unknown`); a
+  provider whose catalogue cannot be verified here (a local `ollama` tag, a
+  reseller) still accepts what the operator names. Crate versions: `core`
+  0.82.0, `infra` 0.94.0, `api` 0.76.0.
+
 ### Changed
 
 - **AI import: the worker sends pages to the vision pair (issue #1013, part

@@ -31,6 +31,7 @@ pub mod provider_health;
 pub mod reasoning;
 pub mod source_name;
 pub mod views;
+pub mod vision;
 
 pub use aggregate::AiConfig;
 pub use apply_run::{
@@ -121,4 +122,8 @@ pub use views::{
     EnergyCostBreakdown, ImageCostBreakdown, JobStatus, JobTelemetrySummary, ModelPricing,
     PricingSource, ProviderBreakerState, ProviderHold, SourceFormat, Telemetry,
     TelemetryApplyState, TokenCostBreakdown,
+};
+pub use vision::{
+    curated_vision_model_ids, has_curated_vision_models, is_curated_vision_model,
+    is_vision_model_acceptable,
 };

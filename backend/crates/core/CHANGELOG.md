@@ -18,6 +18,26 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.82.0] - Unreleased
+### Added (issue #1013)
+
+- `ai::vision` — the pure vision (page-image) model catalogue:
+  `curated_vision_model_ids(provider)` lists the models this workspace has
+  VERIFIED as image-capable (Scaleway, OVHcloud, Nebius, evidence per entry in
+  the module docs), `is_curated_vision_model` matches exactly (a provider's IDs
+  are case-sensitive), and `is_vision_model_acceptable` answers the save-time
+  question — a provider with a verified catalogue must name one of its models,
+  while a provider whose catalogue cannot be verified from here (a local
+  `ollama` tag, a reseller upstream) accepts what the operator names. The
+  egress gate stays the unconditional check.
+- `ModelInfo.supports_vision` (`#[serde(default)]`, additive): `true` only for a
+  verified vision model, so a client can filter its vision picker instead of
+  offering a model that answers `400` on the first page. Live provider
+  catalogues never assert it.
+- `AiConfigError::VisionModelUnknown` → `422 ai-config.vision-model-unknown`,
+  raised only for a CHANGED vision model (catalogue-rotation safety: a
+  catalogue update must never brick an unrelated edit of an existing config).
+
 ## [0.81.0] - Unreleased
 ### Added (issue #1013)
 

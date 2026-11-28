@@ -67,16 +67,16 @@ test binaries (§8).
 
 ## 3. `[V3]` Vision catalogue
 
-- [ ] 3.1 `provider_registry::curated_vision_model_ids(provider)` — a third
+- [x] 3.1 `provider_registry::curated_vision_model_ids(provider)` — a third
       curated list (text / image-generation / vision), never an overload of
       `curated_image_model_ids`.
-- [ ] 3.2 Pricing seed rows for every curated vision model in
+- [x] 3.2 Pricing seed rows for every curated vision model in
       `ai_import.ai_model_pricing`.
-- [ ] 3.3 `ModelInfo.supports_vision: bool` (`#[serde(default)]`), populated by
+- [x] 3.3 `ModelInfo.supports_vision: bool` (`#[serde(default)]`), populated by
       the curated catalog endpoint.
-- [ ] 3.4 Catalog route/param decision implemented (`GET /v1/ai-import/models`
+- [x] 3.4 Catalog route/param decision implemented (`GET /v1/ai-import/models`
       vision filter or sibling route) + OpenAPI + Dart regen.
-- [ ] 3.5 Aggregate validation uses `is_curated_vision_model` for a CHANGED
+- [x] 3.5 Aggregate validation uses `is_curated_vision_model` for a CHANGED
       model only (catalogue-rotation safety, same rule as `decision`).
 
 ## 4. `[V5]` Zoning pass

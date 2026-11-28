@@ -247,6 +247,8 @@ impl Command<CreateAiConfig> for AiConfig {
             cmd.vision_zdr_attested,
             cmd.provider,
             cmd.vault_key_id.as_str(),
+            // Creation always introduces the model → the catalogue check runs.
+            false,
         )?;
         Ok(vec![AiConfigEvent::Created {
             id: cmd.id,
@@ -360,6 +362,8 @@ impl Command<UpdateAiConfig> for AiConfig {
         let primary_pair_changed =
             current_provider != cmd.provider || cmd.vault_key_id != self.vault_key_id;
         if vision_slot_changed || primary_pair_changed {
+            let vision_model_unchanged = self.vision_provider == vision_provider
+                && self.vision_model.as_deref() == vision_model.as_deref();
             validate_vision_config(
                 vision_provider,
                 vision_model.as_deref(),
@@ -367,6 +371,7 @@ impl Command<UpdateAiConfig> for AiConfig {
                 vision_zdr_attested,
                 cmd.provider,
                 cmd.vault_key_id.as_str(),
+                vision_model_unchanged,
             )?;
         }
         // An omitted field keeps the stored choice (an older client); `Auto`
@@ -529,6 +534,7 @@ fn validate_vision_config(
     zdr_attested: bool,
     primary_provider: LlmProvider,
     primary_vault_key_id: &str,
+    model_unchanged: bool,
 ) -> Result<(), AiConfigError> {
     let (Some(provider), Some(model), Some(vault_key_id)) = (provider, model, vault_key_id) else {
         // A partially set slot (including an attestation without a provider,
@@ -546,6 +552,14 @@ fn validate_vision_config(
     }
     if vault_key_id == primary_vault_key_id && provider != primary_provider {
         return Err(AiConfigError::VisionVaultKeyMismatch);
+    }
+    // Catalogue-rotation safety (the #722 rule): only a CHANGED model is
+    // re-validated, so a catalogue update can never brick an unrelated edit of
+    // an existing configuration. A provider whose vision catalogue this
+    // workspace cannot verify publishes none, and then any non-empty ID is
+    // accepted — the egress gate below is the unconditional check.
+    if !model_unchanged && !super::vision::is_vision_model_acceptable(provider, model) {
+        return Err(AiConfigError::VisionModelUnknown);
     }
     if !vision_egress_compliant(vision_egress_policy_for_config(provider, zdr_attested)) {
         return Err(AiConfigError::VisionProviderUnsupported);

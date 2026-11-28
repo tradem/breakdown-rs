@@ -3769,6 +3769,18 @@ components:
           items:
             $ref: '#/components/schemas/ReasoningEffort'
           type: array
+        supports_vision:
+          description: |-
+            Whether this model is known to accept **page images** (issue #1013), so
+            a client can filter its vision picker instead of offering a model that
+            will answer `400` on the first page.
+
+            `true` only for a model in a provider's verified vision catalogue
+            (`core::ai::vision::curated_vision_model_ids`). Additive with
+            `serde(default)`: a backend that predates the field, a live provider
+            catalogue this workspace cannot verify, and every text/decision/image
+            model report `false` — an unverified capability is never asserted.
+          type: boolean
       required:
       - id
       - provider
@@ -6811,6 +6823,51 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/ai-import/providers/{provider}/vision-models:
+    get:
+      description: |-
+        A provider whose vision catalogue this workspace cannot verify serves an
+        EMPTY 200 list (a local `ollama` tag, an unverifiable reseller) — never the
+        text catalogue, which would offer a model that cannot see.
+      operationId: list_ai_vision_models
+      parameters:
+      - description: Provider key (e.g. ovhcloud, scaleway, nebius)
+        in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ModelInfo'
+                type: array
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      summary: |-
+        Curated **vision** (page-image) model catalog for one provider (issue
+        #1013). Mirrors `list_ai_decision_models` / `list_ai_image_models` with the
+        vision catalogue: the same credential-role gate, the same pricing
+        enrichment, and `pricing: null` honest degradation on a pricing read-model
+        failure.
       tags:
       - handlers
   /v1/ai-import/schedules:
@@ -12192,6 +12249,11 @@ x-code-registry:
   status: 422
   title: Vision vault key cannot be reused across providers
   type: https://docs.breakdown.example/problems/ai-config.vision-vault-key-mismatch
+- code: ai-config.vision-model-unknown
+  extensions: []
+  status: 422
+  title: Vision model not curated for provider
+  type: https://docs.breakdown.example/problems/ai-config.vision-model-unknown
 - code: ai-config.provider-mismatch
   extensions: []
   status: 409

@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vision-model-unknown",
+  "detail": "Dieses Vision-Modell ist für den gewählten Anbieter nicht freigegeben. Bitte ein Modell aus der Liste des Anbieters wählen — ein Textmodell kann keine Seitenbilder lesen.",
+  "status": 422,
+  "title": "Vision model not curated for provider",
+  "type": "https://docs.breakdown.example/problems/ai-config.vision-model-unknown"
+}

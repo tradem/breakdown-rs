@@ -18,6 +18,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.76.0] - Unreleased
+### Added (issue #1013)
+
+- `GET /v1/ai-import/providers/{provider}/vision-models` — the page-image
+  catalogue, a sibling of the decision/image model routes (same
+  credential-role gate, same pricing enrichment, `pricing: null` on an
+  unseeded model). A provider whose catalogue cannot be verified serves an
+  EMPTY 200 list, never the text catalogue.
+- `ModelInfo.supports_vision` on every catalog response; the new problem code
+  `ai-config.vision-model-unknown` with `de`/`en` Fluent texts.
+- `openapi.yaml` regenerated; `CLIENT_VERSION` 1.13.0 → 1.14.0 and the Dart
+  client regenerated (new `visionModels` operation + `supportsVision` field).
+
 ## [0.75.0] - Unreleased
 ### Changed (issue #1013)
 
