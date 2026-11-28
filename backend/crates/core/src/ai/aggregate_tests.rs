@@ -14,6 +14,7 @@ use kameo_es::test_utils::GivenEntity;
 use kameo_es::{Apply, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::ai::vision::is_curated_vision_model;
 use crate::shared::{AggregateVersion, UserId};
 
 use super::{
@@ -1530,9 +1531,17 @@ fn a_vision_model_is_revalidated_only_when_it_changes() {
     // A stored model that has since left the curated catalogue must not brick an
     // unrelated edit — the worker still accepts it and the egress gate still
     // applies at runtime. Only a CHANGED model is checked against the catalogue.
+    // `Qwen2.5-VL-72B-Instruct` is in OVHcloud's own catalogue but deliberately
+    // NOT curated here ("Being retired"), so it stands in for a model that was
+    // rotated out of the catalogue after this configuration was saved.
+    let stale_model = "Qwen2.5-VL-72B-Instruct";
+    assert!(
+        !is_curated_vision_model(LlmProvider::Ovhcloud, stale_model),
+        "the seeded model must be uncurated for this test to prove anything"
+    );
     let created = CreateAiConfig {
         vision_provider: Some(LlmProvider::Ovhcloud),
-        vision_model: Some("qwen3-vl-30b-a3b".into()),
+        vision_model: Some(stale_model.into()),
         ..make_vision_cmd()
     };
     let id = created.id;
@@ -1555,7 +1564,7 @@ fn a_vision_model_is_revalidated_only_when_it_changes() {
             decision_model: None,
             decision_vault_key_id: None,
             vision_provider: Some(LlmProvider::Ovhcloud),
-            vision_model: Some("qwen3-vl-30b-a3b".into()),
+            vision_model: Some(stale_model.into()),
             vision_vault_key_id: Some("settings-abc:vision-key".into()),
             vision_zdr_attested: false,
             reasoning_effort: ReasoningEffortChoice::Auto,

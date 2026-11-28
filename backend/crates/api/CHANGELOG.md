@@ -28,7 +28,7 @@ commits (ADR-020 D5).
   EMPTY 200 list, never the text catalogue.
 - `ModelInfo.supports_vision` on every catalog response; the new problem code
   `ai-config.vision-model-unknown` with `de`/`en` Fluent texts.
-- `openapi.yaml` regenerated; `CLIENT_VERSION` 1.12.0 → 1.13.0 and the Dart
+- `openapi.yaml` regenerated; `CLIENT_VERSION` 1.13.0 → 1.14.0 and the Dart
   client regenerated (new `visionModels` operation + `supportsVision` field).
 
 ## [0.75.0] - Unreleased
