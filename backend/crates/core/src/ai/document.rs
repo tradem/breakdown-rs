@@ -687,6 +687,30 @@ impl DocumentZones {
         self.fell_back
     }
 
+    /// Build a verdict from an EXTERNAL zone answer (issue #1013), e.g. the
+    /// bounded VLM structural pass.
+    ///
+    /// `labels` must cover every page exactly once — a validated
+    /// [`ZoneLabelAnswer`] guarantees that, and this constructor does not
+    /// re-check it (the validator is the only producer). `fell_back` stays
+    /// `false`: an answered document was classified, not widened.
+    #[must_use]
+    pub fn from_labels(labels: &[(u32, PageZone)]) -> Self {
+        Self {
+            pages: labels
+                .iter()
+                .map(|(page_number, zone)| PageZoneRecord {
+                    page_number: *page_number,
+                    zone: *zone,
+                    heading_lines: 0,
+                    dialogue_lines: 0,
+                    banner: None,
+                })
+                .collect(),
+            fell_back: false,
+        }
+    }
+
     /// Widen every page to [`PageZone::ScriptBody`].
     ///
     /// Called by the segmentation when [`Self::has_script_body`] is `false`: a
@@ -1585,6 +1609,36 @@ pub fn is_continuation_marker(line: &str) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StructuralPlan {
     pages: Vec<PlanPage>,
+    /// Which producer decided the zones (issue #1013).
+    ///
+    /// **Diagnostic only — deliberately NOT part of [`Self::canonical_form`].**
+    /// The digest that guards chunk resume must change when the PLAN changes,
+    /// not when its producer changes: a deterministic and a VLM plan that agree
+    /// on every page produce byte-identical chunks, so digesting the source
+    /// would restart a partially extracted document for no benefit.
+    source: PlanSource,
+}
+
+/// The producer of a [`StructuralPlan`]'s zone decision (issue #1013).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlanSource {
+    /// The deterministic Pass 0 (banner/geometry/heading signals).
+    #[default]
+    Deterministic,
+    /// The bounded VLM structural pass, which only runs when the deterministic
+    /// pass recognised no `ScriptBody` page at all.
+    Vlm,
+}
+
+impl PlanSource {
+    /// Stable spelling for a persisted plan / diagnostic line.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::Vlm => "vlm",
+        }
+    }
 }
 
 /// One page of a [`StructuralPlan`].
@@ -1610,6 +1664,9 @@ impl StructuralPlan {
                     anchors: Vec::new(),
                 })
                 .collect(),
+            // A verdict built by the deterministic pass; the VLM producer
+            // overwrites this via `set_source`.
+            source: PlanSource::Deterministic,
         }
     }
 
@@ -1617,6 +1674,17 @@ impl StructuralPlan {
     #[must_use]
     pub fn pages(&self) -> &[PlanPage] {
         &self.pages
+    }
+
+    /// Which producer decided this plan's zones (issue #1013).
+    #[must_use]
+    pub fn source(&self) -> PlanSource {
+        self.source
+    }
+
+    /// Record the producer (diagnostic; never part of the canonical form).
+    pub fn set_source(&mut self, source: PlanSource) {
+        self.source = source;
     }
 
     /// Whether the plan has no page at all (an empty document).
@@ -1664,6 +1732,178 @@ impl StructuralPlan {
         }
         out
     }
+}
+
+/// One page of a [`ZoneLabelAnswer`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ZoneLabelPage {
+    pub page_number: u32,
+    /// One of `title_page | cast_list | scene_index | front_matter |
+    /// script_body` ([`PageZone::as_str`]).
+    pub zone: String,
+    /// The model's own confidence, kept for the diagnostic line only. Never
+    /// used to decide anything: a "high" confidence on an unvalidated label is
+    /// worth exactly as much as a "low" one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<String>,
+    /// Block anchors where a chunk may start, in `P<NN>.B<NN>` form.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anchors: Vec<String>,
+}
+
+/// The VLM structural pass's answer (issue #1013, ADR-041 `D3`).
+///
+/// **Zone labels and anchors only — never prose.** The deserializer accepts
+/// unknown members (a model that also returns `"text": "…"` is not an error) but
+/// the struct has no field to put them in, so transcribed prose is structurally
+/// DISCARDED here rather than filtered later. That is what keeps `D3` intact:
+/// the slicer keeps slicing the document's own bytes, so every `source_quote`
+/// `verify_draft_outfits` checks stays verbatim.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ZoneLabelAnswer {
+    #[serde(default)]
+    pub pages: Vec<ZoneLabelPage>,
+}
+
+/// Why a [`ZoneLabelAnswer`] was refused.
+///
+/// Every variant is a BOUNDED validation failure: the caller logs one warn,
+/// records the fallback diagnostic and keeps today's widened segmentation. It
+/// is never retried — a model that answered nonsense once will answer it again,
+/// and the retry budget belongs to the paid extraction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ZoneLabelError {
+    /// The answer carried no page at all.
+    Empty,
+    /// A page number is missing from the answer (the document has it).
+    MissingPage(u32),
+    /// A page number appears twice.
+    DuplicatePage(u32),
+    /// A page number the document does not have.
+    UnknownPage(u32),
+    /// The zone string is not one of the five [`PageZone`] spellings.
+    UnknownZone { page_number: u32, zone: String },
+    /// An anchor is not a block of this document.
+    UnknownAnchor { page_number: u32, anchor: String },
+}
+
+impl std::fmt::Display for ZoneLabelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "the zone answer named no page"),
+            Self::MissingPage(page) => write!(f, "page {page} is missing from the zone answer"),
+            Self::DuplicatePage(page) => write!(f, "page {page} appears twice in the zone answer"),
+            Self::UnknownPage(page) => {
+                write!(f, "page {page} does not exist in this document")
+            }
+            Self::UnknownZone { page_number, zone } => {
+                write!(f, "page {page_number} names the unknown zone '{zone}'")
+            }
+            Self::UnknownAnchor {
+                page_number,
+                anchor,
+            } => write!(
+                f,
+                "page {page_number} names the anchor '{anchor}', which is not a block of this document"
+            ),
+        }
+    }
+}
+
+impl ZoneLabelAnswer {
+    /// Validate the answer against `document` and turn it into a verdict.
+    ///
+    /// The checks are the ones a model can plausibly get wrong, each refused
+    /// instead of repaired: a missing or duplicated page would silently widen or
+    /// narrow the document, an unknown zone string is not a classification, and
+    /// an anchor outside the document's `BlockAnchor` space would cut a chunk at
+    /// a line that does not exist. Anchor ORDER is not checked here — the plan
+    /// ignores a descending/duplicate anchor itself ([`StructuralPlan::record_anchor`]).
+    pub fn validate(&self, document: &StructuredDocument) -> Result<DocumentZones, ZoneLabelError> {
+        if self.pages.is_empty() {
+            return Err(ZoneLabelError::Empty);
+        }
+        let known_pages: std::collections::BTreeSet<u32> =
+            document.pages.iter().map(|page| page.page_number).collect();
+        let mut labels: Vec<(u32, PageZone)> = Vec::with_capacity(document.pages.len());
+        for page in &self.pages {
+            if !known_pages.contains(&page.page_number) {
+                return Err(ZoneLabelError::UnknownPage(page.page_number));
+            }
+            if labels.iter().any(|(seen, _)| *seen == page.page_number) {
+                return Err(ZoneLabelError::DuplicatePage(page.page_number));
+            }
+            let zone = parse_zone_label(&page.zone).ok_or_else(|| ZoneLabelError::UnknownZone {
+                page_number: page.page_number,
+                zone: page.zone.clone(),
+            })?;
+            let document_page = document
+                .pages
+                .iter()
+                .find(|candidate| candidate.page_number == page.page_number);
+            for anchor in &page.anchors {
+                let known = document_page.is_some_and(|candidate| {
+                    candidate
+                        .blocks
+                        .iter()
+                        .any(|block| block.id.to_string() == *anchor)
+                });
+                if !known {
+                    return Err(ZoneLabelError::UnknownAnchor {
+                        page_number: page.page_number,
+                        anchor: anchor.clone(),
+                    });
+                }
+            }
+            labels.push((page.page_number, zone));
+        }
+        for page_number in &known_pages {
+            if !labels.iter().any(|(seen, _)| seen == page_number) {
+                return Err(ZoneLabelError::MissingPage(*page_number));
+            }
+        }
+        labels.sort_by_key(|(page_number, _)| *page_number);
+        Ok(DocumentZones::from_labels(&labels))
+    }
+
+    /// The chunk-start anchors the answer proposed, grouped per page and
+    /// restricted to anchors that validated. Only valid after
+    /// [`Self::validate`] returned `Ok`.
+    #[must_use]
+    pub fn anchors(&self) -> Vec<BlockAnchor> {
+        let mut anchors: Vec<BlockAnchor> = Vec::new();
+        for page in &self.pages {
+            for anchor in &page.anchors {
+                if let Some(parsed) = parse_block_anchor(anchor) {
+                    anchors.push(parsed);
+                }
+            }
+        }
+        anchors.sort();
+        anchors
+    }
+}
+
+/// Parse one [`PageZone::as_str`] spelling.
+#[must_use]
+pub fn parse_zone_label(label: &str) -> Option<PageZone> {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "title_page" => Some(PageZone::TitlePage),
+        "cast_list" => Some(PageZone::CastList),
+        "scene_index" => Some(PageZone::SceneIndex),
+        "front_matter" => Some(PageZone::FrontMatter),
+        "script_body" => Some(PageZone::ScriptBody),
+        _ => None,
+    }
+}
+
+/// Parse the `P<NN>.B<NN>` anchor spelling a zone answer uses.
+#[must_use]
+pub fn parse_block_anchor(anchor: &str) -> Option<BlockAnchor> {
+    let (page, block) = anchor.trim().split_once(".B")?;
+    let page_number = page.strip_prefix('P')?.parse::<u32>().ok()?;
+    let block_ordinal = block.parse::<u32>().ok()?;
+    Some(BlockAnchor::new(page_number, block_ordinal))
 }
 
 #[cfg(test)]

@@ -627,6 +627,10 @@ struct FakeQueueState {
     /// CodeRabbit review PR #967), flattened in append order — one entry per
     /// paid request.
     partial_usage: Vec<breakdown_core::ai::LlmCallUsage>,
+    /// The same appends WITH their `(provider, model)` attribution (issue #1013,
+    /// CodeRabbit review PR #1018): `partial_usage` cannot tell which pair
+    /// paid a request, so a zoning-page assertion needs the whole entry.
+    appended_calls: Vec<breakdown_core::ai::BilledCall>,
     /// Fault injection for the ledger append: fail this many times before the
     /// write lands (issue #970 round 14 — the bounded retry must survive a
     /// transient error instead of dropping a paid request).
@@ -686,6 +690,7 @@ impl AiImportQueue for FakeQueue {
         state
             .partial_usage
             .extend(calls.iter().map(|call| call.usage));
+        state.appended_calls.extend(calls.iter().cloned());
         Ok(())
     }
 
@@ -1051,6 +1056,7 @@ fn script_worker(
         },
         pricing: None,
         decision: None,
+        vision: None,
     }
 }
 
@@ -1371,6 +1377,7 @@ fn script_worker_with_client<C: LlmClient + 'static>(
         },
         pricing: None,
         decision: None,
+        vision: None,
     }
 }
 
@@ -1586,6 +1593,7 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
         },
         pricing: None,
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -1637,6 +1645,7 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
         },
         pricing: None,
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -1688,6 +1697,7 @@ async fn script_worker_preserves_model_title_when_scan_has_none() {
         },
         pricing: None,
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -5326,6 +5336,7 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -6302,6 +6313,7 @@ fn scoring_worker(
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: Some(super::DecisionResolution::Available(decision)),
+        vision: None,
     }
 }
 
@@ -7406,6 +7418,7 @@ fn cost_worker(
         bounds: AiImportBounds::default(),
         pricing: Some(pricing),
         decision,
+        vision: None,
     }
 }
 
@@ -7659,6 +7672,7 @@ fn per_request_cost_worker(
         bounds: AiImportBounds::default(),
         pricing: Some(pricing),
         decision: None,
+        vision: None,
     }
 }
 
@@ -7931,6 +7945,7 @@ fn resume_worker(
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     }
 }
 
@@ -9703,6 +9718,7 @@ async fn a_re_drive_prices_the_seeded_ledger_per_request() {
             ),
         ))),
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     worker
@@ -9799,6 +9815,7 @@ async fn a_re_drive_prices_each_billed_pair_with_its_own_rate_card() {
         bounds: AiImportBounds::default(),
         pricing: Some(pricing),
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     worker
@@ -9857,6 +9874,7 @@ async fn a_transient_ledger_append_failure_is_retried_and_keeps_the_usage() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        vision: None,
     };
     let job = script_job(AiImportJobId::new());
     worker
@@ -10434,4 +10452,369 @@ async fn schedule_prices_page_calls_with_the_vision_pairs_own_rate_card() {
         "an unpriced vision pair must not be priced with the assistant's row"
     );
     assert_eq!(cost.total.total_nano, None);
+}
+
+// ===========================================================================
+// Issue #1013 — the bounded VLM structural-zoning pass (fail-open)
+// ===========================================================================
+
+/// Extractor that returns a fixture document and renders a synthetic PNG, so
+/// the zoning pass can be driven without Poppler. Its fingerprint is NOT the
+/// legacy one, i.e. it claims to be able to render pages.
+#[derive(Clone, Copy)]
+struct ZoneFixtureExtractor;
+
+impl breakdown_core::ai::DocumentStructureExtractor for ZoneFixtureExtractor {
+    fn parser_fingerprint(&self) -> &'static str {
+        "zone-fixture-v1"
+    }
+
+    async fn extract(
+        &self,
+        _bytes: &[u8],
+        _options: breakdown_core::ai::ExtractionOptions,
+    ) -> Result<breakdown_core::ai::StructuredDocument, DomainError> {
+        // No banner and no scene heading this build recognises: the
+        // deterministic Pass 0 finds no script page and widens.
+        let mut page = breakdown_core::ai::StructuredPage::new(1, 595.0, 842.0);
+        page.push_block(
+            breakdown_core::ai::BlockKind::Paragraph,
+            breakdown_core::ai::NormalizedBBox::new(0.1, 0.2, 0.9, 0.4),
+            "Ein unbekanntes Szenenformat ohne erkennbare Überschrift.",
+        );
+        Ok(breakdown_core::ai::StructuredDocument::new(
+            "zone-fixture-v1",
+            vec![page],
+        ))
+    }
+
+    async fn render_page(
+        &self,
+        _bytes: &[u8],
+        page_number: u32,
+        _options: breakdown_core::ai::RenderOptions,
+    ) -> Result<breakdown_core::ai::RenderedPage, DomainError> {
+        Ok(breakdown_core::ai::RenderedPage {
+            page_number,
+            png_bytes: vec![0x89, b'P', b'N', b'G', 0, 0, 0],
+        })
+    }
+}
+
+/// Vision client that answers the zoning question with a fixed plan and records
+/// how often it was asked.
+#[derive(Clone, Default)]
+struct RecordingZoneClient {
+    calls: Arc<Mutex<usize>>,
+    /// When set, the answer is refused — the fail-open case.
+    fail: bool,
+    /// When set, the answer is refused with a LOST CLAIM — the one refusal that
+    /// must NOT be fail-open (CodeRabbit review, PR #1018).
+    lost_claim: bool,
+    /// The usage each answer reports — non-zero so the billed-call ledger keeps
+    /// the entry (a zero-usage entry is dropped by `record_attempt_usage`).
+    usage: LlmCallUsage,
+}
+
+#[async_trait]
+impl LlmClient for RecordingZoneClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation("zone client only labels zones"))
+    }
+
+    async fn chat_vision_zone_labels(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::ZoneLabelAnswer>, DomainError> {
+        *self.calls.lock().unwrap() += 1;
+        if self.lost_claim {
+            return Err(DomainError::conflict(
+                "worker lost its claim on the AI import job mid-processing",
+            ));
+        }
+        if self.fail {
+            return Err(DomainError::service_unavailable("zoning provider is down"));
+        }
+        Ok(LlmCallOutcome::new(
+            breakdown_core::ai::ZoneLabelAnswer {
+                pages: vec![breakdown_core::ai::ZoneLabelPage {
+                    page_number: request.page.page_number,
+                    zone: "script_body".to_owned(),
+                    confidence: Some("high".to_owned()),
+                    anchors: Vec::new(),
+                }],
+            },
+            self.usage,
+        ))
+    }
+}
+
+fn zone_worker(
+    client: Arc<RecordingZoneClient>,
+    vision: Option<super::ScheduleVision>,
+) -> ScriptImportWorker<FakeQueue, RecordingZoneClient, ZoneFixtureExtractor> {
+    ScriptImportWorker {
+        chunks: None,
+        queue: Arc::new(FakeQueue::default()),
+        client,
+        previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
+        extractor: ZoneFixtureExtractor,
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+        vision,
+    }
+}
+
+fn zone_vision(client: Arc<RecordingZoneClient>) -> super::ScheduleVision {
+    super::ScheduleVision {
+        client,
+        provider: LlmProvider::Ovhcloud,
+        model: "qwen3-vl-30b-a3b".to_owned(),
+        zdr_attested: false,
+    }
+}
+
+fn zone_script_job() -> AiImportJob {
+    let mut job = schedule_job(SourceFormat::Pdf);
+    job.document_kind = DocumentKind::Script;
+    job
+}
+
+/// Criterion 6: a document the deterministic pass cannot zone ASKS the vision
+/// pair — the seam `DocumentZones::fell_back_to_script_body` was named for.
+///
+/// The fixture deliberately carries no heading this build recognises, which is
+/// exactly the shape that sets the fallback flag. Note what the assertion does
+/// NOT claim: a zone plan cannot invent headings, so the chunk set is decided by
+/// the slicer either way (see the PR body's finding on the trigger).
+#[tokio::test]
+async fn an_unrecognised_template_asks_the_vlm_pass_for_zones() {
+    let zone_client = Arc::new(RecordingZoneClient::default());
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let job = zone_script_job();
+    // The outcome (0 chunks → a validation error) is the same with and without
+    // the pass; what this test pins is that the pass RAN.
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "expected: the heading-less fixture yields no chunk");
+    }
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        1,
+        "one page → one zoning question"
+    );
+}
+
+/// Without a vision slot the pass never runs — the pre-#1013 behaviour.
+#[tokio::test]
+async fn no_vision_slot_means_no_zoning_question() {
+    let zone_client = Arc::new(RecordingZoneClient::default());
+    let worker = zone_worker(Arc::new(RecordingZoneClient::default()), None);
+    let job = zone_script_job();
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "expected: the heading-less fixture yields no chunk");
+    }
+    assert_eq!(*zone_client.calls.lock().unwrap(), 0);
+}
+
+/// Criterion 6(d) and 8: an unavailable structural helper degrades to today's
+/// widened segmentation instead of failing the import — and the degradation is
+/// visible as the `zone_detection` diagnostic.
+#[tokio::test]
+async fn an_unavailable_zoning_pass_still_imports_with_the_diagnostic() {
+    let zone_client = Arc::new(RecordingZoneClient {
+        fail: true,
+        ..RecordingZoneClient::default()
+    });
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let job = zone_script_job();
+    // The helper outage must not be what fails the job: the deterministic
+    // widened fallback decides the outcome, and for a fixture with no
+    // recognisable heading that outcome is the ordinary "no scene heading"
+    // validation error — never a zoning error.
+    let error = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+        .expect_err("a heading-less fixture still cannot produce chunks");
+    assert!(
+        error.to_string().contains("scene heading"),
+        "the failure must be the deterministic one, not the structural helper: {error}"
+    );
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        1,
+        "the pass was attempted once, then failed open"
+    );
+}
+
+/// Criterion 8: with `AI_DOCUMENT_PARSER=legacy-pdftotext` the pass is
+/// structurally impossible — the adapter refuses `render_page` by name, so no
+/// render is attempted and no zoning question is asked.
+#[tokio::test]
+async fn the_legacy_parser_never_attempts_a_zoning_render() {
+    let zone_client = Arc::new(RecordingZoneClient::default());
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::new(FakeQueue::default()),
+        client: Arc::new(RecordingZoneClient::default()),
+        previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+        vision: Some(zone_vision(zone_client.clone())),
+    };
+    let job = zone_script_job();
+    // The legacy adapter flattens the bytes; whatever it produces, the zoning
+    // pass must not run.
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"1 I/T - DREHORT\nText.\n".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "the legacy adapter's own outcome is not what this test asserts");
+    }
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        0,
+        "the legacy adapter cannot render, so no page may be sent"
+    );
+}
+
+/// CodeRabbit review, PR #1018 (Major, Data Integrity): every zoning page is a
+/// paid request, so its usage belongs on the job row's billed-call ledger —
+/// against the VISION pair, because that is who billed it. Without the append the
+/// cost snapshot and the per-model pricing never see the zoning spend, and the
+/// entries of the pages before a failure are lost with the accumulated answer.
+#[tokio::test]
+async fn each_zoning_page_reaches_the_ledger_with_the_vision_pair() {
+    let usage = LlmCallUsage {
+        tokens_in: 640,
+        tokens_out: 96,
+        cached_tokens_in: 0,
+        energy_millijoules: 4,
+    };
+    let zone_client = Arc::new(RecordingZoneClient {
+        usage,
+        ..RecordingZoneClient::default()
+    });
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let queue = Arc::clone(&worker.queue);
+    let job = zone_script_job();
+    // The fixture has no heading, so the import itself still fails — the run is
+    // only here to drive the zoning pass.
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "expected: the heading-less fixture yields no chunk");
+    }
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        1,
+        "one page → one paid zoning request"
+    );
+    assert_eq!(
+        queue.state.lock().unwrap().appended_calls,
+        vec![breakdown_core::ai::BilledCall {
+            provider: LlmProvider::Ovhcloud,
+            model: "qwen3-vl-30b-a3b".to_owned(),
+            usage,
+        }],
+        "the page's usage is on the ledger, attributed to the pair that billed it"
+    );
+}
+
+/// CodeRabbit review, PR #1018 (Minor, Stability): "fail-open" has exactly one
+/// exception. A lost claim means another worker owns the job, so the `Conflict`
+/// propagates instead of being absorbed by the widened segmentation — the same
+/// rule the schedule page loop follows.
+#[tokio::test]
+async fn a_lost_claim_is_never_absorbed_by_the_fail_open_fallback() {
+    let zone_client = Arc::new(RecordingZoneClient {
+        lost_claim: true,
+        ..RecordingZoneClient::default()
+    });
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let job = zone_script_job();
+    let error = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+        .expect_err("a lost claim abandons the job");
+    assert!(
+        matches!(error, DomainError::Conflict { .. }),
+        "the lost claim must surface as the conflict it is: {error:?}"
+    );
+    assert!(
+        !error.to_string().contains("scene heading"),
+        "the deterministic fallback must not have run: {error}"
+    );
+}
+
+/// CodeRabbit review, PR #1018 round 2: a successful zone answer that reports NO
+/// usage metadata is still a BILLED call. `record_attempt_usage` drops all-zero
+/// entries, so the zoning pass cannot use it — dropping the entry would turn a
+/// call priced at zero into an absent call (the cost snapshot separates
+/// "calls == 0" from "calls with zero counters"), while the schedule-page path
+/// keeps such entries.
+#[tokio::test]
+async fn a_zero_usage_zoning_answer_still_reaches_the_ledger() {
+    let zone_client = Arc::new(RecordingZoneClient::default());
+    let worker = zone_worker(
+        Arc::new(RecordingZoneClient::default()),
+        Some(zone_vision(zone_client.clone())),
+    );
+    let queue = Arc::clone(&worker.queue);
+    let job = zone_script_job();
+    if let Err(error) = worker
+        .process(&job, "test-worker", b"pdf-bytes".as_slice())
+        .await
+    {
+        tracing::debug!(%error, "expected: the heading-less fixture yields no chunk");
+    }
+    assert_eq!(
+        *zone_client.calls.lock().unwrap(),
+        1,
+        "one page → one paid zoning request"
+    );
+    assert_eq!(
+        queue.state.lock().unwrap().appended_calls,
+        vec![breakdown_core::ai::BilledCall {
+            provider: LlmProvider::Ovhcloud,
+            model: "qwen3-vl-30b-a3b".to_owned(),
+            usage: LlmCallUsage::default(),
+        }],
+        "a zero-usage answer is a recorded call, not an absent one"
+    );
 }

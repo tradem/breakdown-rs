@@ -81,25 +81,42 @@ test binaries (§8).
 
 ## 4. `[V5]` Zoning pass
 
-- [ ] 4.1 `core::ai::preview::extract_scenes_with_zones(document, &zones)` and
+- [x] 4.1 `core::ai::preview::extract_scenes_with_zones(document, &zones)` and
       `extract_scenes_from_structured` delegating to it (zoning decisions stay
       outside the pure slicer).
-- [ ] 4.2 Zone-answer DTO + deserializer that structurally discards any prose
+- [x] 4.2 Zone-answer DTO + deserializer that structurally discards any prose
       (a model returning transcribed text cannot leak it into a chunk), with
       validation for unknown zones, missing/duplicate page numbers and anchors
       outside the document's `BlockAnchor` space.
-- [ ] 4.3 VLM zoning call in the script worker: triggered only by
+- [x] 4.3 VLM zoning call in the script worker: triggered only by
       `fell_back_to_script_body()`, one page at a time, bounded by page count
       (`AI_IMPORT_MAX_ZONING_PAGES`) and `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`.
-- [ ] 4.4 Fail-open path: stable `warn` event + one preview diagnostic
+- [x] 4.4 Fail-open path: stable `warn` event + one preview diagnostic
       (`zone_detection: fell_back`), widened fallback unchanged; `legacy-pdftotext`
       render refusal logged by name, no render attempt.
-- [ ] 4.5 `StructuralPlan` records its source (`deterministic` | `vlm`); the
+- [x] 4.5 `StructuralPlan` records its source (`deterministic` | `vlm`); the
       digest keeps driving `fingerprint_key`, so a changed vision model restarts
       at chunk `0`.
-- [ ] 4.6 Tests: parity of `extract_scenes_with_zones` with today's deterministic
+- [x] 4.6 Tests: parity of `extract_scenes_with_zones` with today's deterministic
       path, prose-discarding deserializer, a "bad template" fixture whose only
       path to correct scene counts is a supplied zone plan, corpus run
       (40/42/43/42/42) with a scripted zone answer, and the fail-open path.
-- [ ] 4.7 `backend/.github/instructions/ai-import.instructions.md` documents the
+- [x] 4.7 `backend/.github/instructions/ai-import.instructions.md` documents the
       vision slot, the zoning trigger, the page cap and the legacy-parser limit.
+
+## 5. Open finding (recorded, not fixed)
+
+The `fell_back_to_script_body()` trigger specified in the issue is **inert for
+the chunk set**: `classify_document_zones` marks any page with a recognised
+scene heading as `ScriptBody`, so `!has_script_body()` implies the document has
+NO recognised heading — and a zone plan cannot invent one. The pass therefore
+runs, validates and is recorded (`source = vlm`), but the widened fallback it
+replaces already produced the same (empty) chunk set. The contamination case the
+issue describes (`SYNOPSIS`/`SCRIPT REPORT` glued into scenes) happens when
+`has_script_body()` is TRUE, which the specified trigger never fires on.
+
+A useful trigger is the issue's own "optional second trigger": fire the pass when
+the deterministic verdict is *suspect* — e.g. a `SceneIndex` page plus a
+`ScriptBody` page count below the index's entry count, or a body page count
+that disagrees with the index. That is a behavioural change to the trigger and
+belongs to a follow-up decision, not to this contract PR.

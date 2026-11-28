@@ -742,6 +742,28 @@ pub trait LlmClient: Send + Sync {
     ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
         self.chat_vision_constrained(req).await
     }
+
+    /// Ask the model for **zone labels only** on one rendered page (issue
+    /// #1013) — the structural-zoning pass ADR-041 `D3` reserves for a template
+    /// the deterministic Pass 0 cannot read.
+    ///
+    /// The answer may contain zone names, a confidence and block anchors; it may
+    /// NOT contain prose, and [`crate::ai::document::ZoneLabelAnswer`] has no
+    /// field to carry any. The document's own bytes stay the only source of
+    /// chunk text, which is what keeps `verify_draft_outfits` verbatim.
+    ///
+    /// Defaulted to a `validation` error: a client without a vision transport
+    /// simply cannot answer, and the caller treats that as "no structural
+    /// helper" (fail-open) rather than a job failure.
+    async fn chat_vision_zone_labels(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<crate::ai::document::ZoneLabelAnswer>, DomainError> {
+        let _ = req;
+        Err(DomainError::validation(
+            "vision zone labelling is not supported by this client",
+        ))
+    }
 }
 
 /// One `(provider, model)` pricing row of the read model (issue #675).

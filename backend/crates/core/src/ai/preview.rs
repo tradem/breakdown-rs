@@ -4316,15 +4316,55 @@ pub fn extract_scenes_from_structured(document: &StructuredDocument) -> Segmente
     if !zones.has_script_body() {
         zones.widen_to_script_body();
     }
-    let lines = zoned_lines(document, &zones, is_scene_heading);
+    extract_scenes_with_zones(document, &zones)
+}
+
+/// Slice a document into scene chunks under an **already decided** zone plan
+/// (issue #1013).
+///
+/// This is the seam the VLM structural pass needed: the zoning decision stays
+/// OUTSIDE the pure slicer, so a model's zone answer and the deterministic Pass 0
+/// are two producers of the same value, not two slicers. Everything below the
+/// zone verdict — verbatim block slicing, header/footer/continuation exclusion,
+/// `SceneIndex` reconciliation, the cast directory — is byte-identical on both
+/// paths, which is what keeps `verify_draft_outfits` and the `#871` fingerprint
+/// semantics intact.
+///
+/// A verdict that reports [`DocumentZones::fell_back_to_script_body`] records one
+/// NON-BLOCKING uncertainty: the widening is a real degradation of the scene
+/// list, and until #1013 it was completely silent.
+#[must_use]
+pub fn extract_scenes_with_zones(
+    document: &StructuredDocument,
+    zones: &DocumentZones,
+) -> SegmentedScript {
+    let lines = zoned_lines(document, zones, is_scene_heading);
     let index = scene_index_entries(&lines);
     let outcome = scan_zoned_lines(&lines, &index);
     let chunks = merge_duplicate_scene_numbers(outcome.chunks);
-    let mut plan = StructuralPlan::from_zones(&zones);
+    let mut plan = StructuralPlan::from_zones(zones);
     for anchor in outcome.anchors {
         plan.record_anchor(anchor);
     }
-    let uncertainties = scene_index_uncertainties(&index, &chunks);
+    let mut uncertainties = scene_index_uncertainties(&index, &chunks);
+    if zones.fell_back_to_script_body() {
+        // Issue #1013: the deterministic pass recognised no script page, so
+        // every page was treated as prose. That is the pre-#959 contamination
+        // mode (synopsis/index prose gluing itself onto the last scene) and it
+        // must be visible in the preview instead of shipping silently. Not
+        // blocking: the import is degraded, not unapplyable.
+        uncertainties.push(Uncertainty {
+            scene_index: 0,
+            field: ZONE_DETECTION_FIELD.to_owned(),
+            note: format!(
+                "no script page was recognised ({} pages treated as script prose);                  the scene list may include synopsis or index text",
+                zones.pages().len()
+            ),
+            suggested_value: None,
+            kind: UncertaintyKind::DroppedRow,
+            candidates: Vec::new(),
+        });
+    }
     SegmentedScript {
         chunks,
         block_number: outcome.block_number,
@@ -4333,6 +4373,11 @@ pub fn extract_scenes_from_structured(document: &StructuredDocument) -> Segmente
         cast_directory: parse_cast_directory(&lines),
     }
 }
+
+/// The uncertainty field name the zone fallback is published under (issue
+/// #1013): the preview says "Zonenerkennung unsicher — Fallback auf
+/// Gesamttext" from it, and a diagnostic query can count it.
+pub const ZONE_DETECTION_FIELD: &str = "zone_detection";
 
 /// What the line scan produced, before the duplicate merge reconciles it.
 struct ScanOutcome {
@@ -4992,7 +5037,13 @@ fn scene_label_end(s: &str) -> Option<usize> {
     })
 }
 
-fn is_scene_heading(line: &str) -> bool {
+/// The canonical scene-heading detector (exported since issue #1013).
+///
+/// A caller that decides zones OUTSIDE the slicer (the VLM structural pass, the
+/// worker's trigger) must classify with the SAME detector the slicer uses —
+/// otherwise the zone verdict and the chunk cuts disagree about what a heading
+/// is, and a `ScriptBody` page could yield zero chunks.
+pub fn is_scene_heading(line: &str) -> bool {
     // Word→PDF export artifacts are normalized INSIDE the detector so every
     // caller (chunk splitting and direct tests alike) gets the robust
     // behavior; the stored heading stays verbatim (see `extract_scenes`).

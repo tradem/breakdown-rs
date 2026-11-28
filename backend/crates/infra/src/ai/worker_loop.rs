@@ -711,6 +711,24 @@ async fn script_worker_tick(
                     return Ok(());
                 }
             };
+            // Issue #1013: the same vision pair the schedule path uses, for the
+            // bounded structural-zoning pass. Resolution is best-effort here —
+            // unlike the schedule path, a missing page transport cannot fail a
+            // SCRIPT job, because the zoning pass is a fail-open helper and the
+            // deterministic pass still segments the document.
+            let primary_transport: Arc<dyn LlmClient> = client.clone();
+            let vision = match resolve_schedule_vision(deps, &config, &primary_transport).await {
+                Ok(vision) => vision,
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "could not resolve the vision slot for the structural-zoning pass;                          the script is segmented deterministically (issue #1013)"
+                    );
+                    None
+                }
+            };
             let worker = ScriptImportWorker {
                 chunks: deps.chunks.clone(),
                 queue: deps.queue.clone(),
@@ -727,6 +745,7 @@ async fn script_worker_tick(
                 // provider (issue #722): an Ollama extraction with a hosted
                 // decision model must score like any other combination.
                 decision: decision_pass.clone(),
+                vision,
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -766,6 +785,24 @@ async fn script_worker_tick(
                     return Ok(());
                 }
             };
+            // Issue #1013: the same vision pair the schedule path uses, for the
+            // bounded structural-zoning pass. Resolution is best-effort here —
+            // unlike the schedule path, a missing page transport cannot fail a
+            // SCRIPT job, because the zoning pass is a fail-open helper and the
+            // deterministic pass still segments the document.
+            let primary_transport: Arc<dyn LlmClient> = client.clone();
+            let vision = match resolve_schedule_vision(deps, &config, &primary_transport).await {
+                Ok(vision) => vision,
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "could not resolve the vision slot for the structural-zoning pass;                          the script is segmented deterministically (issue #1013)"
+                    );
+                    None
+                }
+            };
             let worker = ScriptImportWorker {
                 chunks: deps.chunks.clone(),
                 queue: deps.queue.clone(),
@@ -779,6 +816,7 @@ async fn script_worker_tick(
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
                 decision: decision_pass.clone(),
+                vision,
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {

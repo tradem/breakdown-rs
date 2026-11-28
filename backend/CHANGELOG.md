@@ -49,6 +49,15 @@ generated notes are never used.
 
 ### Added
 
+- **AI import: the VLM structural-zoning pass is built (issue #1013, part 4/4).**
+  The seam `DocumentZones::fell_back_to_script_body` named is finally wired: when
+  the deterministic Pass 0 recognises no script page, the worker asks the
+  configured vision pair to label the pages (zone names, confidence and block
+  anchors — never prose, `D3`), bounded by page count and rendered bytes and
+  fail-open on every failure mode. A widened verdict now records a non-blocking
+  `zone_detection` diagnostic instead of widening silently, and a successful plan
+  records `source = vlm` without perturbing the chunk fingerprint.
+  Crate versions: `core` 0.83.0, `infra` 0.95.0.
 - **AI import: a vision catalogue and a declared capability (issue #1013, part
   3/4).** `GET /v1/ai-import/providers/{provider}/vision-models` serves the
   models this workspace has verified as image-capable (Scaleway, OVHcloud,
